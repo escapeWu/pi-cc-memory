@@ -1,7 +1,7 @@
 {
 	"name": "pi-cc-memory",
-	"version": "0.1.0",
-	"description": "Project-scoped, file-based memory for Pi, modeled on Claude Code's auto memory",
+	"version": "0.2.0",
+	"description": "Project- and user-scoped, file-based memory for Pi, modeled on Claude Code auto memory",
 	"type": "module",
 	"main": "src/extension.ts",
 	"pi": {

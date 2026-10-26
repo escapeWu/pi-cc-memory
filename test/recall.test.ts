@@ -4,16 +4,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, test } from "node:test";
 import { byteLength } from "../src/core/format.ts";
-import { isRecallWorthy, recall, searchStore, truncateUtf8 } from "../src/core/recall.ts";
+import { isRecallWorthy, type RecallSource, recall, searchStore, truncateUtf8 } from "../src/core/recall.ts";
 import { MemoryStore } from "../src/core/store.ts";
 
 const cleanups: string[] = [];
 
-async function seededStore(): Promise<MemoryStore> {
-	const dir = await mkdtemp(join(tmpdir(), "cc-memory-recall-"));
+async function tempStore(prefix = "cc-memory-recall-"): Promise<MemoryStore> {
+	const dir = await mkdtemp(join(tmpdir(), prefix));
 	cleanups.push(dir);
 	const store = new MemoryStore({ root: dir });
 	await store.init();
+	return store;
+}
+
+async function seededProject(): Promise<MemoryStore> {
+	const store = await tempStore();
 	await store.upsert({
 		path: "deploy.md",
 		title: "Deploy",
@@ -30,6 +35,7 @@ afterEach(async () => {
 });
 
 const limits = { maxCandidates: 200, maxFiles: 5, maxFileBytes: 4096, maxSessionBytes: 60 * 1024 };
+const projectSources = (store: MemoryStore): RecallSource[] => [{ scope: "project", store }];
 
 describe("recall", () => {
 	test("accepts CJK requests without spaces", () => {
@@ -39,33 +45,88 @@ describe("recall", () => {
 	});
 
 	test("returns only candidate paths chosen by the selector", async () => {
-		const store = await seededStore();
-		const result = await recall(store, "how do deploys work", async () => ["deploy.md", "not-a-candidate.md"], limits);
+		const store = await seededProject();
+		const result = await recall(projectSources(store), "how do deploys work", async () => ["deploy.md", "not-a-candidate.md"], limits);
 
 		assert.deepEqual(
-			result.files.map((file) => file.path),
-			["deploy.md"],
+			result.files.map((file) => `${file.scope}:${file.path}`),
+			["project:deploy.md"],
 		);
 		assert.match(result.files[0]?.content ?? "", /release branch/);
 	});
 
-	test("respects maxFiles and already surfaced paths", async () => {
-		const store = await seededStore();
-		const result = await recall(store, "answers and deploy", async () => ["deploy.md", "style.md"], {
+	test("qualifies the manifest with scope and accepts scope:path selections", async () => {
+		const project = await seededProject();
+		const global = await tempStore("cc-memory-recall-global-");
+		await global.upsert({
+			path: "style.md",
+			title: "Global style",
+			type: "user",
+			description: "cross-project style",
+			body: "Answer in Chinese.",
+		});
+
+		let manifest = "";
+		const result = await recall(
+			[
+				{ scope: "project", store: project },
+				{ scope: "global", store: global },
+			],
+			"style",
+			async (input) => {
+				manifest = input.manifest;
+				return ["global:style.md"];
+			},
+			limits,
+		);
+
+		assert.match(manifest, /project:style\.md/);
+		assert.match(manifest, /global:style\.md/);
+		assert.deepEqual(
+			result.files.map((file) => `${file.scope}:${file.path}`),
+			["global:style.md"],
+		);
+		assert.match(result.files[0]?.content ?? "", /Answer in Chinese/);
+	});
+
+	test("resolves a bare path project-first", async () => {
+		const project = await seededProject();
+		const global = await tempStore("cc-memory-recall-global-");
+		await global.upsert({ path: "style.md", title: "Global style", type: "user", description: "cross-project style", body: "global body" });
+
+		const result = await recall(
+			[
+				{ scope: "project", store: project },
+				{ scope: "global", store: global },
+			],
+			"style",
+			async () => ["style.md"],
+			limits,
+		);
+
+		assert.deepEqual(
+			result.files.map((file) => `${file.scope}:${file.path}`),
+			["project:style.md"],
+		);
+	});
+
+	test("respects maxFiles and already surfaced keys", async () => {
+		const store = await seededProject();
+		const result = await recall(store ? projectSources(store) : [], "answers and deploy", async () => ["deploy.md", "style.md"], {
 			...limits,
 			maxFiles: 1,
-			alreadySurfacedPaths: new Set(["style.md"]),
+			alreadySurfacedPaths: new Set(["project:style.md"]),
 		});
 
 		assert.deepEqual(
-			result.files.map((file) => file.path),
-			["deploy.md"],
+			result.files.map((file) => `${file.scope}:${file.path}`),
+			["project:deploy.md"],
 		);
 	});
 
 	test("stops when the session budget is exhausted", async () => {
-		const store = await seededStore();
-		const result = await recall(store, "deploy", async () => ["deploy.md"], {
+		const store = await seededProject();
+		const result = await recall(projectSources(store), "deploy", async () => ["deploy.md"], {
 			...limits,
 			maxSessionBytes: 10,
 			alreadySurfacedBytes: 10,
@@ -76,9 +137,9 @@ describe("recall", () => {
 	});
 
 	test("degrades to no recall when the selector fails", async () => {
-		const store = await seededStore();
+		const store = await seededProject();
 		const result = await recall(
-			store,
+			projectSources(store),
 			"deploy",
 			async () => {
 				throw new Error("model down");
@@ -98,7 +159,7 @@ describe("recall", () => {
 	});
 
 	test("linear search finds narrow terms", async () => {
-		const store = await seededStore();
+		const store = await seededProject();
 		const hits = await searchStore(store, "release", { limit: 5, candidates: 50 });
 		assert.deepEqual(
 			hits.map((hit) => hit.path),

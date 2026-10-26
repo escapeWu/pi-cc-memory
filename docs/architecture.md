@@ -12,8 +12,10 @@ src/core/                 host-neutral logic (no Pi imports)
   types.ts                memory types, records, results
   format.ts               Markdown codec, index, budgets, path validation
   identity.ts             canonical Git root -> project slug
+  scopes.ts               project/global scope, type-vs-scope advisory
   policy.ts               model-facing maintenance rules
-  store.ts                single owner of MEMORY.md + topic files
+  store.ts                single owner of one MEMORY.md + its topic files
+  router.ts               routes operations to project and/or global store
   recall.ts               candidate scan, injected selector, budget, search
 src/adapters/             host I/O (Pi + filesystem)
   filesystem.ts           atomic writes, bounded reads, keyed mutex
@@ -29,10 +31,11 @@ Dependency direction is `extension -> adapters -> core`. `core/` must not import
 
 ## Storage
 
-Default store root:
+Two store roots:
 
 ```text
-<agentDir>/cc-memory/projects/<sanitized-canonical-root>-<hash8>/
+<agentDir>/cc-memory/global/                              # cross-project
+<agentDir>/cc-memory/projects/<sanitized-root>-<hash8>/   # per project
 ```
 
 `agentDir` comes from Pi (`getAgentDir()`), normally `~/.pi/agent`. A dedicated
@@ -49,6 +52,22 @@ Default store root:
 Project identity is the canonical Git working tree (linked worktrees map to the
 main repository). The slug is readable text plus an 8-character hash of the
 resolved path, so two different paths cannot collide after sanitization.
+
+## Routing (scope, not type)
+
+```text
+write  -> scope = tool input ?? PI_CC_MEMORY_DEFAULT_SCOPE ?? "project"
+       -> global disabled and scope=global  => explicit error, no fallback
+       -> type/scope mismatch               => warning on the result, write lands
+read   -> explicit scope, else project first then global (resolved scope returned)
+forget -> same resolution; reports when the path still exists in the other store
+list   -> both stores, newest first, each row labelled with its scope
+search -> project rows first, then global rows, labelled
+index  -> one store when scoped, otherwise both sections
+```
+
+`global` is injected before `project`, and recall manifests qualify every path as
+`scope:path` so a fact is never attributed to the wrong tier.
 
 ## Write path
 
@@ -99,6 +118,7 @@ recall messages on the active branch. Failures degrade to "no recall".
 | Forget tombstones / recovery | M2 |
 | Agent-scoped and team-scoped stores | post-M3 |
 | Migration of existing Claude or pi-memory data | post-M3, explicit opt-in |
+| Per-scope recall budgets (currently one shared budget) | M3 if evidence requires |
 
 ## Deliberate differences from the reference implementation
 
@@ -110,3 +130,6 @@ recall messages on the active branch. Failures degrade to "no recall".
 - Core logic has no Pi imports and no Anthropic SDK dependency.
 - The store root is namespaced under `cc-memory/`, so the plugin never adopts or
   overwrites an existing memory installation by accident.
+- Scope is explicit. The reference implementation has one project store; this
+  plugin adds a global tier without inferring scope from the memory type.
+- Disabling global memory is a hard removal: no silent fallback to project.

@@ -67,8 +67,12 @@ export interface ForgetMemoryResult {
 	indexUpdated: boolean;
 }
 
+import type { MemoryScope } from "./scopes.ts";
+
 /** A topic surfaced to the model by the recall layer. */
 export interface RecalledFile {
+	/** Store the memory came from. */
+	scope: MemoryScope;
 	path: string;
 	type?: MemoryType;
 	content: string;

@@ -1,13 +1,27 @@
 /**
  * Recall: pick a small set of topic files relevant to the current request.
  *
- * The selector is injected (see adapters/pi-model.ts), so this module stays
- * pure enough to test without a model. Selection is metadata-based; there is no
+ * The selector is injected (see adapters/pi-model.ts), so this module stays pure
+ * enough to test without a model. Selection is metadata-based; there is no
  * embedding index in M1.
+ *
+ * Candidates can come from both the project and the global store. Every
+ * surfaced path is qualified with its scope so a fact is never attributed to the
+ * wrong store.
  */
 import { byteLength, formatManifest, freshnessNote, memoryAgeDays } from "./format.ts";
+import { isMemoryScope, type MemoryScope } from "./scopes.ts";
 import type { MemoryStore } from "./store.ts";
 import type { MemoryHeader, RecalledFile } from "./types.ts";
+
+export interface RecallSource {
+	scope: MemoryScope;
+	store: MemoryStore;
+}
+
+export interface RecallCandidate extends MemoryHeader {
+	scope: MemoryScope;
+}
 
 export interface RecallLimits {
 	maxCandidates: number;
@@ -15,7 +29,7 @@ export interface RecallLimits {
 	maxFileBytes: number;
 	/** Cumulative bytes already surfaced in this session. */
 	alreadySurfacedBytes?: number;
-	/** Topic paths already surfaced in this session; never repeat them. */
+	/** `scope:path` keys already surfaced in this session; never repeat them. */
 	alreadySurfacedPaths?: ReadonlySet<string>;
 	maxSessionBytes: number;
 }
@@ -23,7 +37,7 @@ export interface RecallLimits {
 export interface SelectorInput {
 	query: string;
 	manifest: string;
-	candidates: readonly MemoryHeader[];
+	candidates: readonly RecallCandidate[];
 }
 
 export type MemorySelector = (input: SelectorInput) => Promise<readonly string[]>;
@@ -42,43 +56,76 @@ export function isRecallWorthy(query: string): boolean {
 	return /[\p{L}\p{N}]/u.test(trimmed);
 }
 
-export async function recall(store: MemoryStore, query: string, selector: MemorySelector, limits: RecallLimits): Promise<RecallResult> {
+export function recallKey(scope: MemoryScope, path: string): string {
+	return `${scope}:${path}`;
+}
+
+/** Manifest lines are qualified as `scope:path` so the selector can disambiguate. */
+export function formatScopedManifest(candidates: readonly RecallCandidate[]): string {
+	return formatManifest(candidates.map((candidate) => ({ ...candidate, path: recallKey(candidate.scope, candidate.path) })));
+}
+
+export async function recall(
+	sources: readonly RecallSource[],
+	query: string,
+	selector: MemorySelector,
+	limits: RecallLimits,
+): Promise<RecallResult> {
 	if (!isRecallWorthy(query)) return { files: [], candidates: 0, skippedReason: "empty-query" };
 
 	const already = limits.alreadySurfacedBytes ?? 0;
 	if (already >= limits.maxSessionBytes) return { files: [], candidates: 0, skippedReason: "session-budget" };
 
-	const candidates = await store.listHeaders(limits.maxCandidates);
+	// Gather per source, then keep the newest `maxCandidates` overall.
+	const gathered: RecallCandidate[] = [];
+	for (const source of sources) {
+		const headers = await source.store.listHeaders(limits.maxCandidates);
+		for (const header of headers) gathered.push({ ...header, scope: source.scope });
+	}
+	const candidates = gathered.sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, limits.maxCandidates);
 	if (candidates.length === 0) return { files: [], candidates: 0, skippedReason: "no-candidates" };
 
 	let selected: readonly string[];
 	try {
-		selected = await selector({ query, manifest: formatManifest(candidates), candidates });
+		selected = await selector({ query, manifest: formatScopedManifest(candidates), candidates });
 	} catch {
 		return { files: [], candidates: candidates.length, skippedReason: "selector-failed" };
 	}
 
-	const byPath = new Map(candidates.map((candidate) => [candidate.path, candidate]));
-	const unique = [...new Set(selected)]
-		.map((path) => byPath.get(path))
-		.filter((header): header is MemoryHeader => header !== undefined)
-		.filter((header) => !limits.alreadySurfacedPaths?.has(header.path))
-		.slice(0, limits.maxFiles);
+	const byKey = new Map(candidates.map((candidate) => [recallKey(candidate.scope, candidate.path), candidate]));
+	const project = new Map<string, RecallCandidate>();
+	for (const candidate of candidates) {
+		if (candidate.scope === "project" && !project.has(candidate.path)) project.set(candidate.path, candidate);
+	}
+
+	const seen = new Set<string>();
+	const unique: RecallCandidate[] = [];
+	for (const raw of selected) {
+		const candidate = resolveSelection(raw, byKey, project);
+		if (!candidate) continue;
+		const key = recallKey(candidate.scope, candidate.path);
+		if (seen.has(key) || limits.alreadySurfacedPaths?.has(key)) continue;
+		seen.add(key);
+		unique.push(candidate);
+		if (unique.length >= limits.maxFiles) break;
+	}
 
 	if (unique.length === 0) return { files: [], candidates: candidates.length, skippedReason: "nothing-selected" };
 
+	const stores = new Map(sources.map((source) => [source.scope, source.store]));
 	const files: RecalledFile[] = [];
 	let remaining = Math.max(0, limits.maxSessionBytes - already);
 
-	for (const header of unique) {
-		const file = await store.readTopic(header.path);
+	for (const candidate of unique) {
+		const store = stores.get(candidate.scope);
+		if (!store) continue;
+		const file = await store.readTopic(candidate.path);
 		if (!file) continue;
 
-		const body = file.body;
 		const note = freshnessNote(file.mtimeMs);
 		const prefix = note ? `${note}\n\n` : "";
-		const headerLine = `Memory (${file.path}, saved ${memoryAgeDays(file.mtimeMs)}d ago):`;
-		const full = `${headerLine}\n${prefix}${body}`;
+		const headerLine = `Memory (${candidate.scope}:${file.path}, type ${file.frontmatter.type}, saved ${memoryAgeDays(file.mtimeMs)}d ago):`;
+		const full = `${headerLine}\n${prefix}${file.body}`;
 		const budget = Math.min(limits.maxFileBytes, remaining);
 		if (budget <= 0) break;
 
@@ -88,6 +135,7 @@ export async function recall(store: MemoryStore, query: string, selector: Memory
 			: full;
 
 		files.push({
+			scope: candidate.scope,
 			path: file.path,
 			type: file.frontmatter.type,
 			content,
@@ -101,6 +149,29 @@ export async function recall(store: MemoryStore, query: string, selector: Memory
 	return files.length > 0
 		? { files, candidates: candidates.length }
 		: { files: [], candidates: candidates.length, skippedReason: "nothing-selected" };
+}
+
+/**
+ * Accept `scope:path` first. A bare path resolves project-first, because a
+ * project fact is the more specific answer for the same relative name.
+ */
+function resolveSelection(
+	raw: string,
+	byKey: ReadonlyMap<string, RecallCandidate>,
+	project: ReadonlyMap<string, RecallCandidate>,
+): RecallCandidate | undefined {
+	const value = raw.trim();
+	const direct = byKey.get(value);
+	if (direct) return direct;
+
+	const colon = value.indexOf(":");
+	if (colon > 0) {
+		const scope = value.slice(0, colon);
+		const path = value.slice(colon + 1);
+		if (isMemoryScope(scope)) return byKey.get(recallKey(scope, path));
+	}
+
+	return project.get(value);
 }
 
 /** Cut on a character boundary so multi-byte characters are never split. */
@@ -117,7 +188,7 @@ export function truncateUtf8(value: string, maxBytes: number): string {
 }
 
 export function formatRecallMessage(files: readonly RecalledFile[]): string {
-	return files.map((file) => `<memory path="${file.path}">\n${file.content}\n</memory>`).join("\n\n");
+	return files.map((file) => `<memory scope="${file.scope}" path="${file.path}">\n${file.content}\n</memory>`).join("\n\n");
 }
 
 export interface SearchHit {
@@ -127,7 +198,7 @@ export interface SearchHit {
 }
 
 /**
- * Linear substring search over topic files.
+ * Linear substring search over one store's topic files.
  * Bounded by `candidates` so a large store cannot stall a tool call;
  * this is a deliberate M1 placeholder for a ranked index.
  */

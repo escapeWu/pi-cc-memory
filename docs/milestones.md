@@ -20,6 +20,7 @@ background agents.
 | Storage | Canonical Git root identity, atomic writes, in-process serialization |
 | Injection | Policy section always; index section when recall is off |
 | Tools | `memory` tool: status/list/read/write/forget/index/search |
+| Two stores | Explicit `scope=project|global`; global tier is disableable |
 | Lifecycle | `session_start`, `before_agent_start`, `session_shutdown` |
 | 自动召回 | Frontmatter manifest → model selection → bounded hidden message |
 
@@ -33,6 +34,9 @@ background agents.
 4. `forget` removes both the topic and its index entry.
 5. Two linked worktrees of one repository resolve to the same store; two
    unrelated repositories do not.
+5b. With global enabled, `scope=global` writes land in the global store and are
+   visible from another project; with `PI_CC_MEMORY_GLOBAL=0`, they fail loudly
+   and the global index is not injected.
 6. With recall on, the index is not injected and at most five selected topics are
    attached before the first model answer.
 7. Selector timeout, model error or malformed JSON degrade to no recall; the turn
@@ -94,7 +98,8 @@ Pi already owns compaction. M2 extends it rather than replacing it.
 **Issues:** [#6](https://github.com/escapeWu/pi-cc-memory/issues/6) session
 note + compaction, [#7](https://github.com/escapeWu/pi-cc-memory/issues/7) forget
 recovery, [#8](https://github.com/escapeWu/pi-cc-memory/issues/8) cross-process
-lock, [#9](https://github.com/escapeWu/pi-cc-memory/issues/9) settings surface.
+lock, [#9](https://github.com/escapeWu/pi-cc-memory/issues/9) settings surface,
+[#13](https://github.com/escapeWu/pi-cc-memory/issues/13) global user store.
 
 **Explicitly out of scope:** automatic extraction of new facts, cross-session
 consolidation, team sync.

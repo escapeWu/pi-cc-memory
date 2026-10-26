@@ -31,8 +31,11 @@ There is no build step: Pi loads `src/extension.ts` through jiti.
 
 ## Invariants to preserve
 
-- Never write into `~/.pi/agent/memory` or `~/.claude`. The default store is
-  `<agentDir>/cc-memory/projects/<slug>/`.
+- Never write into `~/.pi/agent/memory` or `~/.claude`. The default roots are
+  `<agentDir>/cc-memory/projects/<slug>/` and `<agentDir>/cc-memory/global/`.
+- Scope is explicit. Never infer `global` vs `project` from the memory type; the
+  type/scope mismatch is only a warning. A disabled global store must fail loudly,
+  never fall back to a project write.
 - Project identity is the canonical Git root, so worktrees share one store.
 - Topic paths come from the model: validate before any filesystem call, reject
   symlinks and escapes.

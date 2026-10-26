@@ -2,14 +2,14 @@
  * Pi extension entry point.
  *
  * M1 wiring:
- * - session_start: resolve the project store
- * - before_agent_start: inject the memory policy (and index), optional recall
+ * - session_start: resolve the project store and, when enabled, the global store
+ * - before_agent_start: inject policy plus both indexes, optional recall
  * - memory tool: status / list / read / write / forget / index / search
  * - /memory: human-facing status summary
  *
- * No background extraction or consolidation is wired here; those are M3.
+ * Scope is explicit: `scope=global` targets the cross-project store, and fails
+ * loudly when global memory is disabled instead of silently writing to the project.
  */
-
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -18,7 +18,9 @@ import { RECALL_MESSAGE_TYPE, readRecallUsage } from "./adapters/pi-session.ts";
 import { loadConfig, type MemoryConfig } from "./config.ts";
 import { type ProjectIdentity, resolveProjectIdentity } from "./core/identity.ts";
 import { buildMemoryPolicy } from "./core/policy.ts";
-import { formatRecallMessage, recall, searchStore } from "./core/recall.ts";
+import { formatRecallMessage, recall, recallKey } from "./core/recall.ts";
+import { MemoryRouter } from "./core/router.ts";
+import { isMemoryScope, MEMORY_SCOPES, type MemoryScope } from "./core/scopes.ts";
 import { MemoryStore } from "./core/store.ts";
 import { MEMORY_TYPES } from "./core/types.ts";
 
@@ -29,12 +31,17 @@ interface SessionState {
 	cwd: string;
 	identity: ProjectIdentity;
 	config: MemoryConfig;
-	store: MemoryStore;
+	router: MemoryRouter;
 }
 
 const MemoryParams = Type.Object({
 	action: StringEnum(["status", "list", "read", "write", "forget", "index", "search"] as const),
-	path: Type.Optional(Type.String({ description: "Topic path relative to the memory store, e.g. feedback_testing.md" })),
+	scope: Type.Optional(
+		StringEnum(MEMORY_SCOPES, {
+			description: "Storage tier: global (cross-project) or project. Defaults to the configured scope.",
+		}),
+	),
+	path: Type.Optional(Type.String({ description: "Topic path relative to its store, e.g. feedback_testing.md" })),
 	title: Type.Optional(Type.String({ description: "Short human-readable title (write)" })),
 	type: Type.Optional(StringEnum(MEMORY_TYPES)),
 	description: Type.Optional(Type.String({ description: "One specific line used to judge future relevance (write)" })),
@@ -50,32 +57,48 @@ export default function ccMemory(pi: ExtensionAPI): void {
 		if (session && session.cwd === ctx.cwd) return session;
 		const identity = resolveProjectIdentity(ctx.cwd);
 		const config = loadConfig(identity);
-		const store = new MemoryStore({
-			root: config.storeRoot,
-			indexLimits: config.indexLimits,
-			topicMaxBytes: config.topicMaxBytes,
+		const limits = { indexLimits: config.indexLimits, topicMaxBytes: config.topicMaxBytes };
+		const project = new MemoryStore({ root: config.storeRoot, ...limits });
+		const global = new MemoryStore({ root: config.global.root, ...limits });
+
+		const router = new MemoryRouter({
+			project,
+			global,
+			globalEnabled: config.global.enabled,
+			defaultScope: config.global.defaultScope,
 		});
-		await store.init();
-		session = { cwd: ctx.cwd, identity, config, store };
+		await router.init();
+
+		session = { cwd: ctx.cwd, identity, config, router };
 		return session;
 	}
 
-	function statusText(state: SessionState, stats: Awaited<ReturnType<MemoryStore["stats"]>>): string {
-		return [
+	function statusText(state: SessionState, stats: Awaited<ReturnType<MemoryRouter["stats"]>>): string {
+		const lines = [
 			`project: ${state.identity.projectRoot}`,
-			`store: ${state.config.storeRoot}`,
-			`topics: ${stats.topics}`,
-			`index: ${stats.indexLines} lines, ${stats.indexBytes} bytes${stats.indexTruncated ? " (truncated)" : ""}`,
+			`project store: ${state.config.storeRoot} (${stats.project.topics} topics)`,
+			`project index: ${stats.project.indexLines} lines, ${stats.project.indexBytes} bytes${stats.project.indexTruncated ? " (truncated)" : ""}`,
+			stats.globalEnabled
+				? `global store: ${state.config.global.root} (${stats.global?.topics ?? 0} topics)`
+				: `global store: disabled${state.config.global.root ? ` (${state.config.global.root})` : ""}`,
+			stats.globalEnabled
+				? `global index: ${stats.global?.indexLines ?? 0} lines, ${stats.global?.indexBytes ?? 0} bytes${stats.global?.indexTruncated ? " (truncated)" : ""}`
+				: "global index: not loaded",
+			`default scope: ${state.router.defaultScope}`,
 			`recall: ${state.config.recall.enabled ? "on" : "off"}`,
 			`extraction: M3 (not wired)`,
-		].join("\n");
+		];
+		return lines.join("\n");
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
 		try {
 			const state = await ensure(ctx);
-			const stats = await state.store.stats();
-			if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, `memory ${stats.topics} topics`);
+			const stats = await state.router.stats();
+			if (ctx.hasUI) {
+				const total = stats.project.topics + (stats.global?.topics ?? 0);
+				ctx.ui.setStatus(STATUS_KEY, `memory ${total} topics`);
+			}
 		} catch (error) {
 			if (ctx.hasUI) ctx.ui.notify(`cc-memory: ${(error as Error).message}`, "warning");
 		}
@@ -84,14 +107,16 @@ export default function ccMemory(pi: ExtensionAPI): void {
 	pi.on("before_agent_start", async (event, ctx) => {
 		const state = await ensure(ctx);
 		const includeIndex = !state.config.recall.enabled;
-		const indexContent = includeIndex ? await state.store.readIndex() : undefined;
+		const indexes = includeIndex ? await state.router.readIndexes() : { project: "" };
 
 		event.systemPromptOptions.sections = {
 			...event.systemPromptOptions.sections,
 			pi_memory: buildMemoryPolicy({
-				storeRoot: state.config.storeRoot,
+				projectRoot: state.config.storeRoot,
+				...(state.router.globalEnabled ? { globalRoot: state.config.global.root } : {}),
 				includeIndex,
-				...(indexContent !== undefined ? { indexContent } : {}),
+				...(includeIndex ? { projectIndex: indexes.project } : {}),
+				...(includeIndex && indexes.global !== undefined ? { globalIndex: indexes.global } : {}),
 				toolName: TOOL_NAME,
 			}),
 		};
@@ -107,7 +132,7 @@ export default function ccMemory(pi: ExtensionAPI): void {
 			},
 		});
 
-		const result = await recall(state.store, event.prompt, selector, {
+		const result = await recall(state.router.sources(), event.prompt, selector, {
 			maxCandidates: state.config.recall.maxCandidates,
 			maxFiles: state.config.recall.maxFiles,
 			maxFileBytes: state.config.recall.maxFileBytes,
@@ -123,7 +148,7 @@ export default function ccMemory(pi: ExtensionAPI): void {
 				customType: RECALL_MESSAGE_TYPE,
 				content: formatRecallMessage(result.files),
 				display: false,
-				details: { paths: result.files.map((file) => file.path) },
+				details: { paths: result.files.map((file) => recallKey(file.scope, file.path)) },
 			},
 		};
 	});
@@ -132,73 +157,95 @@ export default function ccMemory(pi: ExtensionAPI): void {
 		name: TOOL_NAME,
 		label: "Project memory",
 		description:
-			"Read and maintain the project's persistent Markdown memory. Use action=list to see topics, read/search to recall, write to save a durable fact, forget to remove a stale one, index to view or rebuild the MEMORY.md index.",
-		promptSnippet: "Persistent project memory (list/read/search/write/forget/index)",
+			"Read and maintain persistent Markdown memory. Scope=project holds repository facts; scope=global holds cross-project user identity and feedback. Actions: status, list, read, write, forget, index, search.",
+		promptSnippet: "Persistent memory (project + global): list/read/search/write/forget/index",
 		parameters: MemoryParams,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const state = await ensure(ctx);
 			const limit = Math.max(1, Math.min(50, params.limit ?? 10));
+			const scope = optionalScope(params.scope);
 
 			try {
 				switch (params.action) {
 					case "status": {
-						const stats = await state.store.stats();
-						return textResult(statusText(state, stats), { action: params.action, ...stats, root: state.config.storeRoot });
+						const stats = await state.router.stats();
+						return textResult(statusText(state, stats), {
+							action: params.action,
+							globalEnabled: stats.globalEnabled,
+							project: stats.project,
+							...(stats.global ? { global: stats.global } : {}),
+						});
 					}
 					case "list": {
-						const headers = await state.store.listHeaders(limit);
+						const headers = await state.router.listHeaders(limit);
 						const text = headers.length
-							? headers.map((header) => `- [${header.type ?? "?"}] ${header.path} — ${header.description ?? "(no description)"}`).join("\n")
+							? headers
+									.map((header) => `- [${header.scope}/${header.type ?? "?"}] ${header.path} — ${header.description ?? "(no description)"}`)
+									.join("\n")
 							: "No memories yet.";
 						return textResult(text, { action: params.action, count: headers.length });
 					}
 					case "read": {
 						if (!params.path) return errorResult("action=read requires path");
-						const file = await state.store.readTopic(params.path);
-						if (!file) return errorResult(`memory not found: ${params.path}`);
-						return textResult(`${file.path} [${file.frontmatter.type}]\n\n${file.body}`, {
+						const resolved = await state.router.read(params.path, scope);
+						if (!resolved) return errorResult(`memory not found: ${params.path}${scope ? ` in scope=${scope}` : ""}`);
+						return textResult(`${resolved.scope}:${resolved.file.path} [${resolved.file.frontmatter.type}]\n\n${resolved.file.body}`, {
 							action: params.action,
-							path: file.path,
-							type: file.frontmatter.type,
+							scope: resolved.scope,
+							path: resolved.file.path,
+							type: resolved.file.frontmatter.type,
 						});
 					}
 					case "write": {
 						if (!params.title || !params.type || !params.description || !params.body) {
 							return errorResult("action=write requires title, type, description and body");
 						}
-						const result = await state.store.upsert({
+						const result = await state.router.write({
 							title: params.title,
 							type: params.type,
 							description: params.description,
 							body: params.body,
+							...(scope ? { scope } : {}),
 							...(params.path ? { path: params.path } : {}),
 						});
-						const summary = `${result.created ? "Created" : "Updated"} ${result.path}${result.indexUpdated ? " and updated the index" : ""}.`;
+						const summary = `${result.created ? "Created" : "Updated"} ${result.scope}:${result.path}${result.indexUpdated ? " and updated the index" : ""}.`;
 						const warnings = result.warnings.length ? `\n${result.warnings.join("\n")}` : "";
 						return textResult(summary + warnings, { action: params.action, ...result });
 					}
 					case "forget": {
 						if (!params.path) return errorResult("action=forget requires path");
-						const result = await state.store.forget(params.path);
+						const result = await state.router.forget(params.path, scope);
+						const extra = result.alsoExistsIn ? ` (the same path still exists in scope=${result.alsoExistsIn})` : "";
 						return textResult(
-							`${result.fileRemoved ? "Removed" : "No such file"}: ${result.path}${result.indexUpdated ? "; index updated" : ""}`,
+							`${result.fileRemoved ? "Removed" : "No such file"}: ${result.scope}:${result.path}${result.indexUpdated ? "; index updated" : ""}${extra}`,
 							{ action: params.action, ...result },
 						);
 					}
 					case "index": {
-						const raw = await state.store.readIndex();
-						return textResult(raw.trim() || "MEMORY.md is empty.", { action: params.action, path: "MEMORY.md" });
+						const indexes = await state.router.readIndexes();
+						if (scope === "global") {
+							return textResult(indexes.global?.trim() || "The global MEMORY.md is empty.", { action: params.action, scope: "global" });
+						}
+						if (scope === "project") {
+							return textResult(indexes.project.trim() || "The project MEMORY.md is empty.", { action: params.action, scope: "project" });
+						}
+						const sections = [
+							`# global\n\n${indexes.global?.trim() || (state.router.globalEnabled ? "empty" : "disabled")}`,
+							`# project\n\n${indexes.project.trim() || "empty"}`,
+						];
+						return textResult(sections.join("\n\n"), { action: params.action, globalEnabled: state.router.globalEnabled });
 					}
 					case "search": {
 						if (!params.query) return errorResult("action=search requires query");
-						const hits = await searchStore(state.store, params.query, {
+						const hits = await state.router.search(params.query, {
 							limit,
 							candidates: state.config.recall.maxCandidates,
 						});
-						const text = hits.length
-							? hits.map((hit) => `- ${hit.path} [${hit.type ?? "?"}]: ${hit.snippet}`).join("\n")
+						const filtered = scope ? hits.filter((hit) => hit.scope === scope) : hits;
+						const text = filtered.length
+							? filtered.map((hit) => `- ${hit.scope}:${hit.path} [${hit.type ?? "?"}]: ${hit.snippet}`).join("\n")
 							: "No matching memories.";
-						return textResult(text, { action: params.action, count: hits.length });
+						return textResult(text, { action: params.action, count: filtered.length });
 					}
 				}
 			} catch (error) {
@@ -208,20 +255,24 @@ export default function ccMemory(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("memory", {
-		description: "Show project memory status and topics",
+		description: "Show memory status and topics for both stores",
 		handler: async (args, ctx) => {
 			const state = await ensure(ctx);
-			const stats = await state.store.stats();
+			const stats = await state.router.stats();
 
 			if (args.trim() === "index") {
-				const raw = await state.store.readIndex();
-				if (ctx.hasUI) ctx.ui.notify(raw.trim() || "MEMORY.md is empty.", "info");
+				const indexes = await state.router.readIndexes();
+				const text = [
+					`# global\n\n${indexes.global?.trim() || (state.router.globalEnabled ? "empty" : "disabled")}`,
+					`# project\n\n${indexes.project.trim() || "empty"}`,
+				].join("\n\n");
+				if (ctx.hasUI) ctx.ui.notify(text, "info");
 				return;
 			}
 
-			const headers = await state.store.listHeaders(10);
+			const headers = await state.router.listHeaders(10);
 			const topics = headers.length
-				? headers.map((header) => `${header.path} — ${header.description ?? "(no description)"}`).join("\n")
+				? headers.map((header) => `${header.scope}:${header.path} — ${header.description ?? "(no description)"}`).join("\n")
 				: "No memories yet.";
 			if (ctx.hasUI) ctx.ui.notify(`${statusText(state, stats)}\n\n${topics}`, "info");
 		},
@@ -230,6 +281,10 @@ export default function ccMemory(pi: ExtensionAPI): void {
 	pi.on("session_shutdown", async () => {
 		session = undefined;
 	});
+}
+
+function optionalScope(value: string | undefined): MemoryScope | undefined {
+	return isMemoryScope(value) ? value : undefined;
 }
 
 function textResult(text: string, details: unknown) {

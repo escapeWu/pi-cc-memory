@@ -1,11 +1,18 @@
 # pi-cc-memory
 
-Project-scoped, file-based memory for the [Pi](https://pi.dev) coding agent,
-modeled on Claude Code's auto memory.
+Project- and user-scoped, file-based memory for the [Pi](https://pi.dev) coding
+agent, modeled on Claude Code's auto memory.
 
-Memory is plain Markdown: an index (`MEMORY.md`) plus one file per topic with a
-short frontmatter block. The model reads and writes it through a dedicated tool,
-so memory survives sessions, compactions and worktrees without a database.
+Memory is plain Markdown: per-store indexes (`MEMORY.md`) plus one file per topic
+with a short frontmatter block. The model reads and writes it through a dedicated
+tool, so memory survives sessions, compactions and worktrees without a database.
+
+Two stores:
+
+- **project** — facts about the current repository, keyed by the canonical Git root.
+- **global** — stable cross-project facts about the user and how to collaborate.
+  Can be disabled entirely. Routing is always an explicit `scope`, never guessed
+  from the memory type.
 
 > Status: **M1 (minimum viable)**. Explicit read/write, lifecycle injection and
 > optional recall work. Background extraction and consolidation are planned for
@@ -27,32 +34,39 @@ pi -e ./path/to/pi-cc-memory
 ## What it does
 
 - Injects a memory maintenance policy into the system prompt on every run.
-- Injects `MEMORY.md` by default, so the model can navigate topics without
-  loading their bodies.
-- Gives the model a `memory` tool:
-  `status | list | read | write | forget | index | search`.
+- Injects both `MEMORY.md` indexes by default, so the model can navigate topics
+  without loading their bodies.
+- Gives the model a `memory` tool with an explicit `scope`
+  (`project | global`): `status | list | read | write | forget | index | search`.
+- Warns, but does not block, when a memory type and scope suggest different tiers.
 - Optionally recalls relevant topics before the first answer, using the session
-  model to select from a frontmatter manifest.
+  model to select from a scope-tagged frontmatter manifest.
 - Adds `/memory` for a human-readable status summary.
 
 ## Storage
 
 ```text
-~/.pi/agent/cc-memory/projects/<project>-<hash8>/
-├── MEMORY.md
-├── feedback_testing.md
-└── infra_deploy.md
+~/.pi/agent/cc-memory/
+├── global/                      # cross-project: user identity, feedback
+│   ├── MEMORY.md
+│   └── user_language.md
+└── projects/<project>-<hash8>/  # repository facts
+    ├── MEMORY.md
+    └── infra_deploy.md
 ```
 
-The store is keyed by the canonical Git root, so linked worktrees share memory.
-The plugin writes under its own `cc-memory/` subtree: it never adopts or
+The project store is keyed by the canonical Git root, so linked worktrees share
+memory. The plugin writes under its own `cc-memory/` subtree: it never adopts or
 overwrites an existing `~/.pi/agent/memory` installation.
 
 ## Configuration
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PI_CC_MEMORY_DIR` | — | Exact store root for this project (absolute or `~/...`) |
+| `PI_CC_MEMORY_DIR` | — | Exact project store root (absolute or `~/...`) |
+| `PI_CC_MEMORY_GLOBAL` | `1` | `0` disables the global store entirely |
+| `PI_CC_MEMORY_GLOBAL_DIR` | `<agentDir>/cc-memory/global` | Exact global store root |
+| `PI_CC_MEMORY_DEFAULT_SCOPE` | `project` | Scope used when a tool call omits `scope` |
 | `PI_CC_MEMORY_RECALL` | `0` | `1` enables recall and stops injecting the index |
 | `PI_CC_MEMORY_RECALL_MODEL` | session model | `provider/model` used for selection |
 | `PI_CC_MEMORY_RECALL_FILES` | `5` | Max topics surfaced per request |
@@ -79,7 +93,12 @@ type: feedback
 ```
 
 Types: `user`, `feedback`, `project`, `reference`. These are content
-categories, not storage scopes — every type lives in the same project store.
+categories, **not** storage scopes. The intended split is `user`/`feedback` in
+`global` and `project`/`reference` in the project store, but only the explicit
+`scope` decides where a write lands.
+
+With `PI_CC_MEMORY_GLOBAL=0`, `scope=global` reads and writes fail with an
+explicit error. They never fall back to the project store.
 
 ## Development
 
@@ -100,6 +119,9 @@ Core logic (`src/core/`) has no Pi imports and is tested without a runtime.
 - Writes are atomic (temp file + rename) and serialized per store in-process.
 - Index writes are capped by line and real UTF-8 byte budgets.
 - A failed index update is reported, never silently treated as success.
+- Disabling global memory removes it from injection and recall; targeting it
+  returns an error rather than a silent project write.
+- `forget` reports when the same relative path still exists in the other store.
 - Recall is best-effort and bounded; a slow or failing selector cannot fail a turn.
 
 ## Documents

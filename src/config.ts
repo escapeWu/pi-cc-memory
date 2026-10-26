@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { INDEX_MAX_BYTES, INDEX_MAX_LINES, TOPIC_MAX_BYTES } from "./core/format.ts";
 import { expandUserPath, type ProjectIdentity } from "./core/identity.ts";
+import type { MemoryScope } from "./core/scopes.ts";
 
 export interface RecallConfig {
 	/** When true, the index is not injected; relevant topic files are recalled instead. */
@@ -28,9 +29,18 @@ export interface RecallConfig {
 	timeoutMs: number;
 }
 
+export interface GlobalConfig {
+	/** When false, the global store is neither read nor written. */
+	enabled: boolean;
+	root: string;
+	/** Scope used when a tool call omits `scope`. */
+	defaultScope: MemoryScope;
+}
+
 export interface MemoryConfig {
-	/** Absolute directory holding MEMORY.md and topic files for this project. */
+	/** Absolute directory holding the project MEMORY.md and topic files. */
 	storeRoot: string;
+	global: GlobalConfig;
 	indexLimits: { maxLines: number; maxBytes: number };
 	topicMaxBytes: number;
 	recall: RecallConfig;
@@ -63,9 +73,17 @@ export function defaultStoreRoot(identity: ProjectIdentity, agentDir = getAgentD
 	return join(agentDir, "cc-memory", "projects", identity.slug);
 }
 
+export function defaultGlobalRoot(agentDir = getAgentDir()): string {
+	return join(agentDir, "cc-memory", "global");
+}
+
 export function loadConfig(identity: ProjectIdentity, env: NodeJS.ProcessEnv = process.env, agentDir = getAgentDir()): MemoryConfig {
 	const override = env.PI_CC_MEMORY_DIR ? expandUserPath(env.PI_CC_MEMORY_DIR) : undefined;
 	const storeRoot = override ?? defaultStoreRoot(identity, agentDir);
+
+	const globalEnabled = envFlag(env.PI_CC_MEMORY_GLOBAL) ?? true;
+	const globalOverride = env.PI_CC_MEMORY_GLOBAL_DIR ? expandUserPath(env.PI_CC_MEMORY_GLOBAL_DIR) : undefined;
+	const requestedDefaultScope: MemoryScope = env.PI_CC_MEMORY_DEFAULT_SCOPE === "global" ? "global" : "project";
 
 	const recall: RecallConfig = {
 		...DEFAULT_RECALL,
@@ -80,6 +98,12 @@ export function loadConfig(identity: ProjectIdentity, env: NodeJS.ProcessEnv = p
 
 	return {
 		storeRoot,
+		global: {
+			enabled: globalEnabled,
+			root: globalOverride ?? defaultGlobalRoot(agentDir),
+			// A disabled global store cannot be the default target.
+			defaultScope: globalEnabled ? requestedDefaultScope : "project",
+		},
 		indexLimits: {
 			maxLines: envNumber(env.PI_CC_MEMORY_INDEX_LINES) ?? INDEX_MAX_LINES,
 			maxBytes: envNumber(env.PI_CC_MEMORY_INDEX_BYTES) ?? INDEX_MAX_BYTES,
