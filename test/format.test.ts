@@ -59,15 +59,15 @@ describe("index", () => {
 		const result = truncateIndex(raw, { maxLines: 200, maxBytes: 300 });
 
 		assert.equal(result.truncated, true);
-		const [body] = result.content.split("\n\n> WARNING:");
-		assert.ok(byteLength(body ?? "") <= 300);
+		assert.ok(byteLength(result.content) <= 300);
 	});
 
 	test("line cap truncates and warns", () => {
 		const raw = Array.from({ length: 5 }, (_, index) => `- [T${index}](t${index}.md)`).join("\n");
 		const result = truncateIndex(raw, { maxLines: 2, maxBytes: 10_000 });
 		assert.equal(result.truncated, true);
-		assert.equal(result.content.split("\n").filter((line) => line.startsWith("- ")).length, 2);
+		assert.ok(result.content.split("\n").length <= 2);
+		assert.match(result.content, /WARNING/);
 	});
 });
 

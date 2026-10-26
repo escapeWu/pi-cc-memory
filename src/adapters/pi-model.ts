@@ -14,12 +14,12 @@ const SELECTOR_PROMPT = `You are selecting project memory files that will help w
 You receive a query and a manifest of memory files, one per line:
 - [type] path (timestamp): description
 
-Return up to 5 paths that are clearly useful for this request.
+Return the scope-qualified paths exactly as they appear in the manifest.
 Rules:
 - Only use paths listed in the manifest.
 - Be selective. If nothing is clearly useful, return an empty list.
 - Never select a file whose description is only usage documentation for a tool the user is already using successfully.
-- Return JSON only: {"files": ["path.md"]}`;
+- Return JSON only: {"files": ["project:path.md", "global:other.md"]}`;
 
 interface CandidateModel {
 	provider: string;
@@ -30,9 +30,9 @@ function resolveModel(ctx: ExtensionContext, modelRef?: string) {
 	if (modelRef) {
 		const slash = modelRef.indexOf("/");
 		if (slash > 0) {
-			const model = ctx.modelRegistry.find(modelRef.slice(0, slash), modelRef.slice(slash + 1));
-			if (model) return model;
+			return ctx.modelRegistry.find(modelRef.slice(0, slash), modelRef.slice(slash + 1));
 		}
+		return undefined;
 	}
 	if (ctx.model) return ctx.model;
 	return ctx.modelRegistry.getAvailable()[0];
@@ -45,6 +45,7 @@ function describeModel(model: { provider?: string; id?: string }): CandidateMode
 export interface SelectorOptions {
 	modelRef?: string;
 	timeoutMs: number;
+	maxFiles?: number;
 	/** Receives non-fatal diagnostics such as timeouts or unparseable output. */
 	onWarning?: (message: string) => void;
 }
@@ -59,37 +60,46 @@ export function createPiSelector(ctx: ExtensionContext, options: SelectorOptions
 		}
 
 		const controller = new AbortController();
+		const aborted = new Promise<never>((_resolve, reject) => {
+			controller.signal.addEventListener("abort", () => reject(new Error("recall selection aborted")), { once: true });
+		});
 		const timer = setTimeout(() => controller.abort(), options.timeoutMs);
 		const forwardAbort = () => controller.abort();
 		ctx.signal?.addEventListener("abort", forwardAbort, { once: true });
+		if (ctx.signal?.aborted) controller.abort();
 
 		try {
-			const response = await ctx.modelRegistry.complete(
-				model,
-				{
-					messages: [
-						{
-							role: "user",
-							timestamp: Date.now(),
-							content: [
-								{
-									type: "text",
-									text: `Query:\n${truncateUtf8(query, 4000)}\n\nAvailable memory files:\n${manifest}`,
-								},
-							],
-						},
-					],
-					systemPrompt: SELECTOR_PROMPT,
-				},
-				{ maxTokens: 512, signal: controller.signal, cacheRetention: "none" },
-			);
+			if (controller.signal.aborted) await aborted;
+			const response = await Promise.race([
+				ctx.modelRegistry.complete(
+					model,
+					{
+						messages: [
+							{
+								role: "user",
+								timestamp: Date.now(),
+								content: [
+									{
+										type: "text",
+										text: `Query:\n${truncateUtf8(query, 4000)}\n\nAvailable memory files:\n${manifest}`,
+									},
+								],
+							},
+						],
+						systemPrompt: `${SELECTOR_PROMPT}\nSelect at most ${options.maxFiles ?? 5} files.`,
+					},
+					{ maxTokens: 512, signal: controller.signal, cacheRetention: "none" },
+				),
+				aborted,
+			]);
 
+			if (response.stopReason === "error" || response.stopReason === "aborted") return [];
 			const text = response.content
 				.filter((block): block is { type: "text"; text: string } => block.type === "text")
 				.map((block) => block.text)
 				.join("\n");
 
-			return parseSelectedPaths(text);
+			return parseSelectedPaths(text).slice(0, options.maxFiles ?? 5);
 		} catch (error) {
 			const reason = controller.signal.aborted
 				? "recall selection timed out or was aborted"
@@ -118,7 +128,7 @@ export function parseSelectedPaths(text: string): string[] {
 	if (typeof parsed !== "object" || parsed === null) return [];
 	const files = (parsed as { files?: unknown }).files;
 	if (!Array.isArray(files)) return [];
-	return files.filter((value): value is string => typeof value === "string").slice(0, 5);
+	return files.filter((value): value is string => typeof value === "string");
 }
 
 export { describeModel };

@@ -3,8 +3,8 @@
  *
  * Durable, non-context state lives in session entries so it follows the active
  * branch and survives resume. Recall usage is derived from previously injected
- * custom messages, which means compaction naturally resets the budget: the old
- * messages are no longer on the branch.
+ * custom messages in Pi's finalized context projection. Compaction can retain
+ * raw entries while removing their messages from model context.
  */
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { byteLength } from "../core/format.ts";
@@ -24,14 +24,14 @@ export interface RecallUsage {
 }
 
 interface CustomMessageLike {
-	type: "custom_message";
+	role: "custom";
 	customType: string;
 	content: unknown;
 	details?: unknown;
 }
 
 function isCustomMessage(entry: unknown): entry is CustomMessageLike {
-	return typeof entry === "object" && entry !== null && (entry as { type?: unknown }).type === "custom_message";
+	return typeof entry === "object" && entry !== null && (entry as { role?: unknown }).role === "custom";
 }
 
 function contentLength(content: unknown): number {
@@ -70,7 +70,7 @@ export function readRecallUsage(ctx: ExtensionContext): RecallUsage {
 	const paths = new Set<string>();
 	let surfacedBytes = 0;
 
-	for (const entry of ctx.sessionManager.getBranch()) {
+	for (const entry of ctx.sessionManager.buildSessionProjection().messages) {
 		if (!isCustomMessage(entry) || entry.customType !== RECALL_MESSAGE_TYPE) continue;
 		surfacedBytes += contentLength(entry.content);
 		const details = entry.details;

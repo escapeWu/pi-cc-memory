@@ -66,7 +66,7 @@ function envFlag(value: string | undefined): boolean | undefined {
 function envNumber(value: string | undefined): number | undefined {
 	if (!value) return undefined;
 	const parsed = Number(value);
-	return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+	return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 export function defaultStoreRoot(identity: ProjectIdentity, agentDir = getAgentDir()): string {

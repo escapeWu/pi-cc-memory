@@ -8,7 +8,7 @@
  * - Paths from the model are validated before any filesystem call.
  */
 import { lstat, realpath } from "node:fs/promises";
-import { join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import {
 	atomicWriteFile,
 	ensureDir,
@@ -65,12 +65,17 @@ export class MemoryStore {
 		await ensureDir(this.root);
 	}
 
-	async readIndex(): Promise<string> {
+	private async readRawIndex(): Promise<string> {
+		await this.assertNoSymlinkEscape(this.indexPath);
 		return (await readTextFile(this.indexPath)) ?? "";
 	}
 
+	async readIndex(): Promise<string> {
+		return truncateIndex(await this.readRawIndex(), this.indexLimits).content;
+	}
+
 	async readIndexEntries(): Promise<IndexEntry[]> {
-		return parseIndex(await this.readIndex());
+		return parseIndex(await this.readRawIndex());
 	}
 
 	/** Newest-first frontmatter headers, capped by `limit`. Excludes the index. */
@@ -88,6 +93,8 @@ export class MemoryStore {
 			candidates.map(async (path) => {
 				const absolute = join(this.root, path);
 				try {
+					await this.assertNoSymlinkEscape(absolute);
+					assertSafeTopicPath(path);
 					const [head, mtimeMs] = await Promise.all([readHead(absolute, HEADER_READ_BYTES), fileMtimeMs(absolute)]);
 					return parseHeader(path, head.text, mtimeMs ?? 0);
 				} catch {
@@ -148,7 +155,7 @@ export class MemoryStore {
 					path: relative,
 					hook: normalizeHook(request.description),
 				});
-				await atomicWriteFile(this.indexPath, truncateIndex(renderIndex(next), this.indexLimits).content);
+				await atomicWriteFile(this.indexPath, renderIndex(next));
 				indexUpdated = true;
 			} catch (error) {
 				warnings.push(`topic written but index update failed: ${(error as Error).message}`);
@@ -172,7 +179,7 @@ export class MemoryStore {
 				const entries = await this.readIndexEntries();
 				const next = entries.filter((entry) => entry.path !== relative);
 				if (next.length !== entries.length) {
-					await atomicWriteFile(this.indexPath, truncateIndex(renderIndex(next), this.indexLimits).content);
+					await atomicWriteFile(this.indexPath, renderIndex(next));
 					indexUpdated = true;
 				}
 			} catch {
@@ -193,14 +200,15 @@ export class MemoryStore {
 				hook: normalizeHook(header.description ?? ""),
 			}));
 			const truncated = truncateIndex(renderIndex(entries), this.indexLimits);
-			await atomicWriteFile(this.indexPath, truncated.content);
+			await this.assertNoSymlinkEscape(this.indexPath);
+			await atomicWriteFile(this.indexPath, renderIndex(entries));
 			return { entries: entries.length, truncated: truncated.truncated };
 		});
 	}
 
 	async stats(): Promise<{ topics: number; indexLines: number; indexBytes: number; indexTruncated: boolean }> {
 		const headers = await this.listHeaders(Number.MAX_SAFE_INTEGER);
-		const raw = await this.readIndex();
+		const raw = await this.readRawIndex();
 		const result = truncateIndex(raw, this.indexLimits);
 		return {
 			topics: headers.length,
@@ -215,15 +223,25 @@ export class MemoryStore {
 	 * Prevents a link inside the store from exposing arbitrary files.
 	 */
 	private async assertNoSymlinkEscape(absolute: string): Promise<void> {
+		// Check parents even when the leaf is missing, before its first write.
+		let current = absolute;
+		for (;;) {
+			try {
+				if ((await lstat(current)).isSymbolicLink()) throw new Error(`refusing to follow a symlinked memory path: ${current}`);
+			} catch (error) {
+				if (!isErrno(error, "ENOENT")) throw error;
+			}
+			if (current === this.root) break;
+			current = dirname(current);
+		}
+		let realTarget: string;
 		try {
-			const stats = await lstat(absolute);
-			if (stats.isSymbolicLink()) throw new Error(`refusing to follow a symlinked memory path: ${absolute}`);
+			realTarget = await realpath(absolute);
 		} catch (error) {
 			if (isErrno(error, "ENOENT")) return;
 			throw error;
 		}
-
-		const [realRoot, realTarget] = await Promise.all([realpath(this.root), realpath(absolute)]);
+		const realRoot = await realpath(this.root);
 		const rootPrefix = realRoot.endsWith(sep) ? realRoot : realRoot + sep;
 		if (realTarget !== realRoot && !realTarget.startsWith(rootPrefix)) {
 			throw new Error(`memory path resolves outside the store: ${absolute}`);

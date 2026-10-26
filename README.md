@@ -71,7 +71,7 @@ overwrites an existing `~/.pi/agent/memory` installation.
 | `PI_CC_MEMORY_RECALL_MODEL` | session model | `provider/model` used for selection |
 | `PI_CC_MEMORY_RECALL_FILES` | `5` | Max topics surfaced per request |
 | `PI_CC_MEMORY_RECALL_FILE_BYTES` | `4096` | Per-file surfacing cap |
-| `PI_CC_MEMORY_RECALL_SESSION_BYTES` | `61440` | Per-session surfacing budget |
+| `PI_CC_MEMORY_RECALL_SESSION_BYTES` | `61440` | Recall bytes in effective context; compaction releases discarded messages |
 | `PI_CC_MEMORY_RECALL_TIMEOUT_MS` | `8000` | Selection timeout; failure means no recall |
 | `PI_CC_MEMORY_INDEX_LINES` | `200` | Index line budget |
 | `PI_CC_MEMORY_INDEX_BYTES` | `24000` | Index UTF-8 byte budget |
@@ -107,7 +107,17 @@ npm install --include=dev
 npm run check     # tsc --noEmit
 npm test          # node --test
 npm run lint      # biome
+npm run test:integration  # actual Pi SDK sessions, deterministic provider, no network
+
+# Explicit live check: uses configured Pi credentials; sends synthetic data only.
+PI_CC_MEMORY_LIVE_MODEL=provider/model npm run verify:live
 ```
+
+`npm test` includes the SDK integration suite. It loads the extension through
+Pi's resource loader and tests tools, policy/index injection, native compaction,
+tree navigation, persistence, resume/fork, project isolation and recall failures.
+The live command saves synthetic transcripts and a report under a temporary
+directory; it does not install the plugin or change your existing memory.
 
 Core logic (`src/core/`) has no Pi imports and is tested without a runtime.
 
@@ -115,9 +125,11 @@ Core logic (`src/core/`) has no Pi imports and is tested without a runtime.
 
 - Topic paths are validated; absolute paths, traversal, hidden paths, non-Markdown
   targets and `MEMORY.md` itself are rejected.
-- Symlinked topics and paths resolving outside the store are refused.
+- Symlinked topics, parent directories and indexes are refused, including new
+  topics underneath an existing symlink.
 - Writes are atomic (temp file + rename) and serialized per store in-process.
-- Index writes are capped by line and real UTF-8 byte budgets.
+- Index views are capped by line and UTF-8 byte budgets, including the warning;
+  the complete index stays on disk so later writes preserve every pointer.
 - A failed index update is reported, never silently treated as success.
 - Disabling global memory removes it from injection and recall; targeting it
   returns an error rather than a silent project write.

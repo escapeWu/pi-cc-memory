@@ -8,7 +8,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 
@@ -88,7 +88,10 @@ export function sanitizeProjectSlug(canonicalRoot: string): string {
 export function resolveProjectIdentity(cwd: string): ProjectIdentity {
 	const resolvedCwd = resolve(cwd);
 	const gitEntry = findGitEntry(resolvedCwd);
-	const projectRoot = gitEntry ? canonicalRootFromGitEntry(gitEntry.gitPath, gitEntry.workingTree) : resolvedCwd;
+	const root = gitEntry ? canonicalRootFromGitEntry(gitEntry.gitPath, gitEntry.workingTree) : resolvedCwd;
+	// Git records physical paths. Normalize aliases (e.g. /var -> /private/var
+	// on macOS) before hashing, or the main checkout and worktree diverge.
+	const projectRoot = existsSync(root) ? realpathSync(root) : root;
 	return { cwd: resolvedCwd, projectRoot, slug: sanitizeProjectSlug(projectRoot) };
 }
 
