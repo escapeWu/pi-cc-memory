@@ -146,9 +146,10 @@ Core logic (`src/core/`) has no Pi imports and is tested without a runtime.
 ## Disclaimer
 
 This is an independent implementation, not affiliated with Anthropic or the Pi
-maintainers. It is at the M1 stage: prompt injection, compaction behavior and live
-model recall have not been verified in a real Pi session. See [NOTICE](NOTICE) and
-[SECURITY.md](SECURITY.md).
+maintainers. M1 is verified in isolated Pi SDK sessions, with real model writes
+and pre-answer recall. Interactive terminal rendering and coexistence with other
+memory extensions have not been validated. See [NOTICE](NOTICE),
+[SECURITY.md](SECURITY.md) and [PR #14](https://github.com/escapeWu/pi-cc-memory/pull/14).
 
 ## License
 
