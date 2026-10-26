@@ -85,7 +85,7 @@ export function buildMemoryPolicy(input: MemoryPolicyInput): string {
 		"",
 		"## Forget",
 		"",
-		`Use action \`forget\` with the topic path and its scope. It removes the file and its index entry. Do not only append a correction that leaves the wrong claim in place.`,
+		`Use action \`forget\` with the topic path and scope. It removes the topic and pointer after saving a private recovery record. Keep the returned recoveryId and scope; action \`restore\` restores that exact snapshot without overwriting newer content. Do not append a correction that leaves the wrong claim in place.`,
 	);
 
 	if (input.includeIndex) {

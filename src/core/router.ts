@@ -13,7 +13,7 @@
 import { type SearchHit, searchStore } from "./recall.ts";
 import { type MemoryScope, typeScopeWarning } from "./scopes.ts";
 import type { MemoryStore } from "./store.ts";
-import type { MemoryFile, MemoryHeader, MemoryType, RecalledFile, WriteMemoryRequest } from "./types.ts";
+import type { MemoryFile, MemoryHeader, MemoryType, RecalledFile, RestoreMemoryResult, WriteMemoryRequest } from "./types.ts";
 
 export interface ScopedHeader extends MemoryHeader {
 	scope: MemoryScope;
@@ -36,6 +36,7 @@ export interface ScopedForgetResult {
 	scope: MemoryScope;
 	path: string;
 	fileRemoved: boolean;
+	recoveryId?: string;
 	indexUpdated: boolean;
 	/** Present when the same relative path also exists in the other store. */
 	alsoExistsIn?: MemoryScope;
@@ -151,6 +152,10 @@ export class MemoryRouter {
 		if (other && (await this.store(other).readTopic(path))) alsoExistsIn = other;
 
 		return { scope: resolvedScope, ...result, ...(alsoExistsIn ? { alsoExistsIn } : {}) };
+	}
+
+	async restore(recoveryId: string, scope: MemoryScope = this.defaultScope): Promise<RestoreMemoryResult & { scope: MemoryScope }> {
+		return { scope, ...(await this.store(scope).restore(recoveryId)) };
 	}
 
 	/** Project-first detection, matching `read()` without an explicit scope. */

@@ -1,9 +1,8 @@
 /**
  * Filesystem adapter.
  *
- * All writes are atomic (temp file + rename) inside the target directory, and
- * mutations of one store are serialized in-process. Cross-process locking is a
- * known gap tracked in docs/architecture.md.
+ * Writes use temp file + rename inside the target directory. Store transactions
+ * compose these helpers under the cross-process lock in store-lock.ts.
  */
 
 import { createHash } from "node:crypto";

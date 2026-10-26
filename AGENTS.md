@@ -16,7 +16,8 @@ npm run check               # tsc --noEmit
 npm test                    # core/adapter tests + actual SDK integration tests
 npm run test:integration    # actual Pi SDK sessions, deterministic provider
 npm run lint                # biome check src test scripts
-PI_CC_MEMORY_LIVE_MODEL=provider/model npm run verify:live  # explicit network calls, synthetic data
+PI_CC_MEMORY_LIVE_MODEL=provider/model npm run verify:live  # M1, explicit network calls
+PI_CC_MEMORY_LIVE_MODEL=provider/model npm run verify:m2    # M2, synthetic data only
 ```
 
 There is no build step: Pi loads `src/extension.ts` through jiti.
@@ -41,8 +42,14 @@ There is no build step: Pi loads `src/extension.ts` through jiti.
 - Project identity is the canonical Git root, so worktrees share one store.
 - Topic paths come from the model: validate before any filesystem call, reject
   symlinks and escapes.
-- A topic write and its index update happen under the per-store mutex; report a
-  failed index update instead of claiming success.
+- All store mutations use `withStoreLock`, including snapshots and restore. Keep
+  the same heartbeat/stale policy across writers; never bypass it with only a mutex.
+- Forget records recovery data before deletion; restore cannot overwrite newer
+  content. Index failures must be reported and recovery evidence retained.
+- Settings use `env > project > global > defaults` per field; no project-controlled
+  store roots. Reload effective configuration for each call.
+- Session notes are branch custom entries, not project/global topics. Keep native
+  compaction cut points/file tracking and fall back when note generation fails.
 - Budgets are real UTF-8 bytes, not string length.
 - Recall is best-effort: timeout, model error or bad JSON means no recall, never a
   failed turn.

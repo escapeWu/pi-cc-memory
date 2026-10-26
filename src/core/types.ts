@@ -1,8 +1,8 @@
 /**
  * Content taxonomy for project memory.
  *
- * These are content categories, not storage scopes: every type lives in the
- * same project store. `user` describes the person, it does not mean global.
+ * These are content categories, not storage scopes: every type can live in
+ * either store. `user` describes the person; it never selects global routing.
  */
 export const MEMORY_TYPES = ["user", "feedback", "project", "reference"] as const;
 
@@ -65,6 +65,15 @@ export interface ForgetMemoryResult {
 	path: string;
 	fileRemoved: boolean;
 	indexUpdated: boolean;
+	/** Present only when an existing topic was snapshotted before deletion. */
+	recoveryId?: string;
+}
+
+export interface RestoreMemoryResult {
+	path: string;
+	recoveryId: string;
+	indexUpdated: boolean;
+	alreadyRestored: boolean;
 }
 
 import type { MemoryScope } from "./scopes.ts";

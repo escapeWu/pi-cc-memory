@@ -4,7 +4,9 @@ Three milestones, each independently useful. A milestone is done only when its
 exit criteria are verified in a real Pi session, not merely merged.
 
 Status: **M1 verified on Pi 1.2.0 SDK sessions, including real model writes,
-pre-answer recall, native compaction, resume and fork**. M2/M3 are planned; the global tier from M2 is already available.
+pre-answer recall, native compaction, resume and fork**. **M2 verification passed**
+with independent processes, actual SDK sessions and real-model recovery/continuity.
+M3 is planned.
 
 ---
 
@@ -80,18 +82,21 @@ Pi already owns compaction. M2 extends it rather than replacing it.
 
 1. **Session note** — derive a compact "current state / open threads / decisions"
    note from the active branch, stored outside the persistent project memory.
-2. **Compaction cooperation** — pass the note as focused `customInstructions` in
-   `session_before_compact`, or supply an extension compaction only if the note is
-   provably better than the native summary. Fall back to native compaction.
-3. **Session-note refresh** — update M2's session note after `session_compact` and
-   `session_tree`. M1 already reads fresh indexes and derives recall budgets from
-   the finalized active context on every run.
-4. **Forget safety** — tombstone or recovery record so a mistaken `forget` can be
-   restored; keep the index consistent.
-5. **Cross-process locking** — replace the in-process mutex with a lock file that
-   also survives multiple Pi processes on the same store.
-6. **Settings surface** — `settings.json` (global + project) for recall, budgets
-   and model, with env vars as overrides.
+2. **Compaction cooperation** — generate one bounded note in
+   `session_before_compact`. Pi 1.2.0 has no `customInstructions` override for
+   that event, so the note augments native `preparation.previousSummary`.
+   The plugin never replaces the native compactor; generation failure falls back.
+3. **Branch state** — `/memory note` reads the latest snapshot on the active
+   branch. Tree navigation, resume and fork reconstruct state from Pi entries;
+   indexes and recall usage continue to refresh from effective context each run.
+4. **Forget safety** — save exact content in `.recovery/` before deletion;
+   `memory restore` accepts the stable recovery id and original scope, and refuses
+   to overwrite newer content.
+5. **Cross-process locking** — all store mutations use `proper-lockfile` with
+   a fixed heartbeat/stale policy and bounded acquisition wait.
+6. **Settings surface** — per-field `env > project > global > default` resolution
+   in Pi's `ccMemory` namespace. Reload on each call, strict validation, and no
+   store-path overrides from project settings.
 
 **Exit criteria**
 
@@ -108,6 +113,14 @@ note + compaction, [#7](https://github.com/escapeWu/pi-cc-memory/issues/7) forge
 recovery, [#8](https://github.com/escapeWu/pi-cc-memory/issues/8) cross-process
 lock, [#9](https://github.com/escapeWu/pi-cc-memory/issues/9) settings surface,
 [#13](https://github.com/escapeWu/pi-cc-memory/issues/13) global user store.
+
+`test/m2-store.test.ts` uses actual Node processes for lock contention, crashed
+lock recovery and cross-process restoration. `test/integration/m2.test.ts` checks
+Pi's native compactor, branch notes, restore and config updates; `test/m2-config.test.ts`
+checks precedence and invalid values. `npm run verify:m2` is the separate real-model
+acceptance entrypoint and uses only temporary synthetic data. Real-model
+acceptance confirmed exact recovery in a new session and preservation of the
+unfinished ticket/decision after native compaction ([PR #15](https://github.com/escapeWu/pi-cc-memory/pull/15)).
 
 **Explicitly out of scope:** automatic extraction of new facts, cross-session
 consolidation, team sync.

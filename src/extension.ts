@@ -15,6 +15,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 import { createPiSelector } from "./adapters/pi-model.ts";
 import { RECALL_MESSAGE_TYPE, readRecallUsage } from "./adapters/pi-session.ts";
+import { prepareSessionNote, readSessionNote } from "./adapters/session-note.ts";
 import { loadConfig, type MemoryConfig } from "./config.ts";
 import { type ProjectIdentity, resolveProjectIdentity } from "./core/identity.ts";
 import { buildMemoryPolicy } from "./core/policy.ts";
@@ -35,7 +36,8 @@ interface SessionState {
 }
 
 const MemoryParams = Type.Object({
-	action: StringEnum(["status", "list", "read", "write", "forget", "index", "search"] as const),
+	action: StringEnum(["status", "list", "read", "write", "forget", "restore", "index", "search"] as const),
+	recoveryId: Type.Optional(Type.String({ description: "Recovery id returned by forget; use the same scope (restore)" })),
 	scope: Type.Optional(
 		StringEnum(MEMORY_SCOPES, {
 			description: "Storage tier: global (cross-project) or project. Defaults to the configured scope.",
@@ -54,9 +56,9 @@ export default function ccMemory(pi: ExtensionAPI): void {
 	let session: SessionState | undefined;
 
 	async function ensure(ctx: ExtensionContext): Promise<SessionState> {
-		if (session && session.cwd === ctx.cwd) return session;
-		const identity = resolveProjectIdentity(ctx.cwd);
+		const identity = session?.cwd === ctx.cwd ? session.identity : resolveProjectIdentity(ctx.cwd);
 		const config = loadConfig(identity);
+		if (session?.cwd === ctx.cwd && JSON.stringify(session.config) === JSON.stringify(config)) return session;
 		const limits = { indexLimits: config.indexLimits, topicMaxBytes: config.topicMaxBytes };
 		const project = new MemoryStore({ root: config.storeRoot, ...limits });
 		const global = new MemoryStore({ root: config.global.root, ...limits });
@@ -86,6 +88,7 @@ export default function ccMemory(pi: ExtensionAPI): void {
 				: "global index: not loaded",
 			`default scope: ${state.router.defaultScope}`,
 			`recall: ${state.config.recall.enabled ? "on" : "off"}`,
+			`session note: ${state.config.sessionNote.enabled ? "on (native compaction)" : "off"}`,
 			`extraction: M3 (not wired)`,
 		];
 		return lines.join("\n");
@@ -102,6 +105,11 @@ export default function ccMemory(pi: ExtensionAPI): void {
 		} catch (error) {
 			if (ctx.hasUI) ctx.ui.notify(`cc-memory: ${(error as Error).message}`, "warning");
 		}
+	});
+
+	pi.on("session_before_compact", async (event, ctx) => {
+		const state = await ensure(ctx);
+		await prepareSessionNote(pi, event, ctx, state.config.sessionNote);
 	});
 
 	pi.on("before_agent_start", async (event, ctx) => {
@@ -158,7 +166,7 @@ export default function ccMemory(pi: ExtensionAPI): void {
 		name: TOOL_NAME,
 		label: "Project memory",
 		description:
-			"Read and maintain persistent Markdown memory. Scope=project holds repository facts; scope=global holds cross-project user identity and feedback. Actions: status, list, read, write, forget, index, search.",
+			"Read and maintain persistent Markdown memory. Scope=project holds repository facts; scope=global holds cross-project user identity and feedback. Actions: status, list, read, write, forget (returns recoveryId), restore, index, search.",
 		promptSnippet: "Persistent memory (project + global): list/read/search/write/forget/index",
 		parameters: MemoryParams,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -219,11 +227,20 @@ export default function ccMemory(pi: ExtensionAPI): void {
 					case "forget": {
 						if (!params.path) return errorResult("action=forget requires path");
 						const result = await state.router.forget(params.path, scope);
+						const recovery = result.recoveryId ? `; recovery id: ${result.recoveryId} (scope=${result.scope})` : "";
 						const extra = result.alsoExistsIn ? ` (the same path still exists in scope=${result.alsoExistsIn})` : "";
 						return textResult(
-							`${result.fileRemoved ? "Removed" : "No such file"}: ${result.scope}:${result.path}${result.indexUpdated ? "; index updated" : ""}${extra}`,
+							`${result.fileRemoved ? "Removed" : "No such file"}: ${result.scope}:${result.path}${result.indexUpdated ? "; index updated" : ""}${extra}${recovery}`,
 							{ action: params.action, ...result },
 						);
+					}
+					case "restore": {
+						if (!params.recoveryId) return errorResult("action=restore requires recoveryId and the original scope");
+						const result = await state.router.restore(params.recoveryId, scope);
+						return textResult(`${result.alreadyRestored ? "Already restored" : "Restored"} ${result.scope}:${result.path}; index updated`, {
+							action: params.action,
+							...result,
+						});
 					}
 					case "index": {
 						const indexes = await state.router.readIndexes();
@@ -264,6 +281,17 @@ export default function ccMemory(pi: ExtensionAPI): void {
 			const state = await ensure(ctx);
 			const stats = await state.router.stats();
 
+			if (args.trim() === "note") {
+				const note = readSessionNote(ctx);
+				if (ctx.hasUI)
+					ctx.ui.notify(
+						note
+							? `Session note (${note.createdAt}, snapshot of the active branch):\n\n${note.content}`
+							: "No session note on this branch yet.",
+						"info",
+					);
+				return;
+			}
 			if (args.trim() === "index") {
 				const indexes = await state.router.readIndexes();
 				const text = [

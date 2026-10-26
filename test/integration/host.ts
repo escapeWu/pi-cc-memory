@@ -28,6 +28,11 @@ export async function fixture() {
 export async function fakeRuntime(root: string) {
 	const runtime = await ModelRuntime.create({ authPath: join(root, "auth.json"), modelsPath: null, refreshOnCreate: false });
 	const requests: { prompt: string; text: string }[] = [];
+	const note = {
+		output: "## Current state\nPreparing release.\n## Open threads\nReview ticket OPEN-47.\n## Decisions\nUse violet lane.",
+		fail: false,
+		hang: false,
+	};
 	const selector = { output: '{"files":["project:deploy.md"]}', fail: false, hang: false };
 	runtime.registerProvider("memory-test", {
 		api: "memory-test-api",
@@ -51,7 +56,9 @@ export async function fakeRuntime(root: string) {
 				const text = JSON.stringify(context.messages);
 				requests.push({ prompt, text });
 				const selecting = prompt.includes("You are selecting project memory files");
-				if (selecting && selector.hang) return;
+				const noting = prompt.includes("You write a session continuity note");
+				const step = selecting ? selector : noting ? note : undefined;
+				if (step?.hang) return;
 				const last = context.messages.at(-1);
 				const content = last && "content" in last ? last.content : "";
 				const plain =
@@ -64,6 +71,7 @@ export async function fakeRuntime(root: string) {
 									.join("\n")
 							: "";
 				const command = /^MEMORY_CALL (.+)$/s.exec(plain);
+				const inputTokens = Math.ceil(text.length / 4);
 				const output: AssistantMessage = {
 					role: "assistant",
 					api: model.api,
@@ -72,18 +80,18 @@ export async function fakeRuntime(root: string) {
 					timestamp: Date.now(),
 					content: command
 						? [{ type: "toolCall", id: `call-${requests.length}`, name: "memory", arguments: JSON.parse(required(command[1])) }]
-						: [{ type: "text", text: selecting ? selector.output : "OK" }],
-					stopReason: selecting && selector.fail ? "error" : command ? "toolUse" : "stop",
+						: [{ type: "text", text: step?.output ?? "OK" }],
+					stopReason: step?.fail ? "error" : command ? "toolUse" : "stop",
 					usage: {
-						input: 1,
+						input: inputTokens,
 						output: 1,
 						cacheRead: 0,
 						cacheWrite: 0,
-						totalTokens: 2,
+						totalTokens: inputTokens + 1,
 						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 					},
 				};
-				if (selecting && selector.fail) {
+				if (step?.fail) {
 					output.errorMessage = "fixture selector error";
 					stream.push({ type: "error", reason: "error", error: output });
 				} else stream.push({ type: "done", reason: command ? "toolUse" : "stop", message: output });
@@ -94,7 +102,7 @@ export async function fakeRuntime(root: string) {
 	});
 	const model = runtime.getModel("memory-test", "fixture");
 	assert.ok(model);
-	return { runtime, model, requests, selector };
+	return { runtime, model, requests, selector, note };
 }
 
 export async function openHost(options: {
@@ -107,6 +115,8 @@ export async function openHost(options: {
 	global?: boolean;
 	timeoutMs?: number;
 	extra?: ExtensionFactory;
+	noteTimeoutMs?: number;
+	reserveTokens?: number;
 }) {
 	const env = {
 		PI_CODING_AGENT_DIR: options.agentDir,
@@ -117,10 +127,14 @@ export async function openHost(options: {
 		PI_CC_MEMORY_RECALL: options.recall ? "1" : "0",
 		PI_CC_MEMORY_RECALL_MODEL: "",
 		PI_CC_MEMORY_RECALL_TIMEOUT_MS: String(options.timeoutMs ?? 8000),
+		PI_CC_MEMORY_SESSION_NOTE_TIMEOUT_MS: String(options.noteTimeoutMs ?? 8000),
 	};
 	const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
 	Object.assign(process.env, env);
-	const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false, keepRecentTokens: 0 }, retry: { enabled: false } });
+	const settingsManager = SettingsManager.inMemory({
+		compaction: { enabled: false, keepRecentTokens: 0, reserveTokens: options.reserveTokens ?? 16384 },
+		retry: { enabled: false },
+	});
 	let ctx: ExtensionContext;
 	const notifications: string[] = [];
 	const probe: ExtensionFactory = (pi) => {

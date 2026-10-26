@@ -17,11 +17,12 @@ Reference analysis
 
 No warranty
   This software is provided "AS IS", without warranty of any kind. It is at the
-  M1 stage: lifecycle behavior is verified in isolated Pi SDK sessions, with real
-  model writes and recall. Interactive terminal rendering and coexistence with
+  M2 stage: lifecycle/recovery behavior is verified in isolated Pi SDK sessions,
+  with real model writes, recall and native compaction continuity. Interactive terminal rendering and coexistence with
   other memory extensions have not been validated. Review memory content and
   paths before relying on it in sensitive repositories.
 
 Third-party components
-  Runtime dependencies are resolved through the Pi host. See package.json for the
-  declared peer dependencies and LICENSE for the license of this project.
+  Pi SDK peer dependencies are provided by the host. Store locking uses the MIT-
+  licensed proper-lockfile package. See package.json for runtime/peer dependencies
+  and LICENSE for the license of this project.

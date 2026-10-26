@@ -14,9 +14,9 @@ Two stores:
   Can be disabled entirely. Routing is always an explicit `scope`, never guessed
   from the memory type.
 
-> Status: **M1 (minimum viable)**. Explicit read/write, lifecycle injection and
-> optional recall work. Background extraction and consolidation are planned for
-> M3 and are deliberately not wired. See [docs/milestones.md](docs/milestones.md).
+> Status: **M2 verified with process/SDK tests and real-model acceptance**. Session continuity notes, recoverable deletion, cross-process locking
+> and Pi settings extend the M1 memory/recall path. Background extraction and
+> consolidation remain planned for M3. See [docs/milestones.md](docs/milestones.md).
 
 ## Install
 
@@ -37,11 +37,14 @@ pi -e ./path/to/pi-cc-memory
 - Injects both `MEMORY.md` indexes by default, so the model can navigate topics
   without loading their bodies.
 - Gives the model a `memory` tool with an explicit `scope`
-  (`project | global`): `status | list | read | write | forget | index | search`.
+  (`project | global`): `status | list | read | write | forget | restore | index | search`.
 - Warns, but does not block, when a memory type and scope suggest different tiers.
 - Optionally recalls relevant topics before the first answer, using the session
   model to select from a scope-tagged frontmatter manifest.
-- Adds `/memory` for a human-readable status summary.
+- Adds `/memory` for status, `/memory index` for indexes and `/memory note` for
+  the active branch's latest session-note snapshot.
+- Keeps a bounded session note for native compaction and returns a recovery id
+  when a topic is forgotten.
 
 ## Storage
 
@@ -76,6 +79,55 @@ overwrites an existing `~/.pi/agent/memory` installation.
 | `PI_CC_MEMORY_INDEX_LINES` | `200` | Index line budget |
 | `PI_CC_MEMORY_INDEX_BYTES` | `24000` | Index UTF-8 byte budget |
 | `PI_CC_MEMORY_TOPIC_BYTES` | `32768` | Per-topic UTF-8 byte budget |
+| `PI_CC_MEMORY_SESSION_NOTE` | `1` | Generate a continuity note before native compaction |
+| `PI_CC_MEMORY_SESSION_NOTE_BYTES` | `4096` | Session-note content budget |
+| `PI_CC_MEMORY_SESSION_NOTE_TIMEOUT_MS` | `8000` | Note-generation deadline; failure uses native compaction |
+
+Add a `ccMemory` object to Pi's `<agentDir>/settings.json` and/or
+`<cwd>/.pi/settings.json`:
+
+```json
+{
+  "ccMemory": {
+    "recall": { "enabled": true, "maxFiles": 3, "modelRef": "provider/model" },
+    "global": { "enabled": true, "defaultScope": "project" },
+    "indexLimits": { "maxLines": 200, "maxBytes": 24000 },
+    "topicMaxBytes": 32768,
+    "sessionNote": { "enabled": true, "maxBytes": 4096, "timeoutMs": 8000 }
+  }
+}
+```
+
+Each field resolves as **env > project settings > global settings > default**.
+Recall also accepts `maxCandidates`, `maxFileBytes`, `maxSessionBytes` and
+`timeoutMs`. Settings reload on the next tool call or agent start; no restart is
+required. Invalid values and unknown fields produce errors naming the file and
+field. Store paths are accepted only through the explicit path environment
+variables above; project settings cannot redirect a store
+([Issue #9](https://github.com/escapeWu/pi-cc-memory/issues/9)).
+
+## Forget and restore
+
+`memory` action `forget` returns `recoveryId` and `scope`. A later session can
+recover the exact saved bytes with:
+
+```json
+{"action":"restore","scope":"project","recoveryId":"<id returned by forget>"}
+```
+
+Restoring refuses to overwrite a newer, different topic. Repeating a successful
+restore keeps one index pointer. Recovery snapshots remain in the store's private
+`.recovery/` directory, excluded from list/search/recall and index rebuilding
+([Issue #7](https://github.com/escapeWu/pi-cc-memory/issues/7)).
+
+## Session continuity
+
+Before compaction, one bounded model call produces a `Current state / Open
+threads / Decisions` note from the active branch. Pi keeps it in session metadata;
+`/memory note` shows the last snapshot. The native compactor receives the note
+without changing its cut point or file tracking. Note-generation failure or
+cancellation leaves native behavior in control
+([Issue #6](https://github.com/escapeWu/pi-cc-memory/issues/6)).
 
 ## Memory format
 
@@ -111,6 +163,7 @@ npm run test:integration  # actual Pi SDK sessions, deterministic provider, no n
 
 # Explicit live check: uses configured Pi credentials; sends synthetic data only.
 PI_CC_MEMORY_LIVE_MODEL=provider/model npm run verify:live
+PI_CC_MEMORY_LIVE_MODEL=provider/model npm run verify:m2
 ```
 
 `npm test` includes the SDK integration suite. It loads the extension through
@@ -127,7 +180,9 @@ Core logic (`src/core/`) has no Pi imports and is tested without a runtime.
   targets and `MEMORY.md` itself are rejected.
 - Symlinked topics, parent directories and indexes are refused, including new
   topics underneath an existing symlink.
-- Writes are atomic (temp file + rename) and serialized per store in-process.
+- Writes are atomic (temp file + rename) and mutations are serialized by a
+  shared cross-process store lock. Lock waiting is bounded; crashed locks expire.
+  This protocol targets local filesystems ([Issue #8](https://github.com/escapeWu/pi-cc-memory/issues/8)).
 - Index views are capped by line and UTF-8 byte budgets, including the warning;
   the complete index stays on disk so later writes preserve every pointer.
 - A failed index update is reported, never silently treated as success.
@@ -146,8 +201,8 @@ Core logic (`src/core/`) has no Pi imports and is tested without a runtime.
 ## Disclaimer
 
 This is an independent implementation, not affiliated with Anthropic or the Pi
-maintainers. M1 is verified in isolated Pi SDK sessions, with real model writes
-and pre-answer recall. Interactive terminal rendering and coexistence with other
+maintainers. M1/M2 are verified in isolated Pi SDK sessions, with real model
+writes/recall, recoverable deletion and native compaction continuity. Interactive terminal rendering and coexistence with other
 memory extensions have not been validated. See [NOTICE](NOTICE),
 [SECURITY.md](SECURITY.md) and [PR #14](https://github.com/escapeWu/pi-cc-memory/pull/14).
 
