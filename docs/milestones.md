@@ -46,11 +46,15 @@ summaries, team sync, agent-scoped stores, settings-file UI, data migration.
 
 **Issues**
 
-- M1-1 项目身份与 store 目录解析
-- M1-2 主题文件与索引 codec
-- M1-3 维护规则注入
-- M1-4 索引加载与生命周期
-- M1-5 自动召回
+| Issue | Scope | Local status |
+| --- | --- | --- |
+| [#1](https://github.com/escapeWu/pi-cc-memory/issues/1) M1-1 项目身份与 store 目录解析 | canonical root, slug, paths | implemented, tested |
+| [#2](https://github.com/escapeWu/pi-cc-memory/issues/2) M1-2 主题文件与索引 codec | format, budgets, validation | implemented, tested |
+| [#3](https://github.com/escapeWu/pi-cc-memory/issues/3) M1-3 维护规则注入 | policy prompt section | implemented, live check pending |
+| [#4](https://github.com/escapeWu/pi-cc-memory/issues/4) M1-4 索引加载与生命周期 | load, inject, lifecycle | implemented, compaction/branch check pending |
+| [#5](https://github.com/escapeWu/pi-cc-memory/issues/5) M1-5 自动召回 | selection, budgets, degradation | implemented, live model check pending |
+
+M1 stays open until a real Pi session verifies the unchecked criteria in #3–#5.
 
 ---
 
@@ -87,6 +91,11 @@ Pi already owns compaction. M2 extends it rather than replacing it.
 4. Configuration from settings and env is resolved with a documented precedence.
 5. All M1 criteria still pass.
 
+**Issues:** [#6](https://github.com/escapeWu/pi-cc-memory/issues/6) session
+note + compaction, [#7](https://github.com/escapeWu/pi-cc-memory/issues/7) forget
+recovery, [#8](https://github.com/escapeWu/pi-cc-memory/issues/8) cross-process
+lock, [#9](https://github.com/escapeWu/pi-cc-memory/issues/9) settings surface.
+
 **Explicitly out of scope:** automatic extraction of new facts, cross-session
 consolidation, team sync.
 
@@ -122,6 +131,13 @@ turn, and existing memories are merged and pruned over time.
    removes contradicted facts.
 5. Extraction and consolidation cannot corrupt the index under concurrent writes.
 6. All M1/M2 criteria still pass.
+
+---
+
+**Issues:** [#10](https://github.com/escapeWu/pi-cc-memory/issues/10) background
+extraction, [#11](https://github.com/escapeWu/pi-cc-memory/issues/11) auto dream,
+[#12](https://github.com/escapeWu/pi-cc-memory/issues/12) ranking upgrade
+(evidence-gated).
 
 ---
 
