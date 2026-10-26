@@ -164,6 +164,9 @@ export default function ccMemory(pi: ExtensionAPI): void {
 			const state = await ensure(ctx);
 			const limit = Math.max(1, Math.min(50, params.limit ?? 10));
 			const scope = optionalScope(params.scope);
+			if (scope === "global" && !state.router.globalEnabled) {
+				return errorResult("global memory is disabled (PI_CC_MEMORY_GLOBAL=0); retry with scope=project or enable global memory");
+			}
 
 			try {
 				switch (params.action) {
@@ -177,7 +180,7 @@ export default function ccMemory(pi: ExtensionAPI): void {
 						});
 					}
 					case "list": {
-						const headers = await state.router.listHeaders(limit);
+						const headers = (await state.router.listHeaders(limit)).filter((header) => scope === undefined || header.scope === scope);
 						const text = headers.length
 							? headers
 									.map((header) => `- [${header.scope}/${header.type ?? "?"}] ${header.path} — ${header.description ?? "(no description)"}`)
