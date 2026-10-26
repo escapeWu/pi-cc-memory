@@ -23,5 +23,6 @@ No warranty
   paths before relying on it in sensitive repositories.
 
 Third-party components
-  Runtime dependencies are resolved through the Pi host. See package.json for the
-  declared peer dependencies and LICENSE for the license of this project.
+  Pi SDK peer dependencies are provided by the host. Store locking uses the MIT-
+  licensed proper-lockfile package. See package.json for runtime/peer dependencies
+  and LICENSE for the license of this project.

@@ -37,7 +37,7 @@ describe("extension wiring", () => {
 			commands.map((command) => command.name),
 			["memory"],
 		);
-		assert.deepEqual(events.sort(), ["before_agent_start", "session_shutdown", "session_start"]);
+		assert.deepEqual(events.sort(), ["before_agent_start", "session_before_compact", "session_shutdown", "session_start"]);
 	});
 
 	test("exposes the documented tool actions", () => {
@@ -45,7 +45,7 @@ describe("extension wiring", () => {
 		ccMemory(pi);
 
 		const params = tools[0]?.parameters as { properties?: Record<string, { enum?: string[] }> };
-		assert.deepEqual(params.properties?.action?.enum, ["status", "list", "read", "write", "forget", "index", "search"]);
+		assert.deepEqual(params.properties?.action?.enum, ["status", "list", "read", "write", "forget", "restore", "index", "search"]);
 	});
 
 	test("M3 services stay unimplemented so M1 cannot claim extraction", async () => {

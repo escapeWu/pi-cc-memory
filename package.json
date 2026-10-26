@@ -31,13 +31,15 @@
 		"test": "node --test test/*.test.ts test/integration/*.test.ts",
 		"test:integration": "node --test test/integration/*.test.ts",
 		"verify:live": "node scripts/verify-live.ts",
-		"lint": "biome check src test scripts"
+		"lint": "biome check src test scripts",
+		"verify:m2": "node scripts/verify-m2-live.ts"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.0",
 		"@earendil-works/pi-ai": "1.2.0",
 		"@earendil-works/pi-coding-agent": "1.2.0",
 		"@types/node": "^22.19.0",
+		"@types/proper-lockfile": "^4.1.4",
 		"typebox": "1.3.27",
 		"typescript": "^5.9.3"
 	},
@@ -59,5 +61,8 @@
 	"bugs": {
 		"url": "https://github.com/escapeWu/pi-cc-memory/issues"
 	},
-	"homepage": "https://github.com/escapeWu/pi-cc-memory#readme"
+	"homepage": "https://github.com/escapeWu/pi-cc-memory#readme",
+	"dependencies": {
+		"proper-lockfile": "^4.1.2"
+	}
 }
