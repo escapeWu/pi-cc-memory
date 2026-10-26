@@ -4,8 +4,9 @@ Three milestones, each independently useful. A milestone is done only when its
 exit criteria are verified in a real Pi session, not merely merged.
 
 Status: **M1 verified on Pi 1.2.0 SDK sessions, including real model writes,
-pre-answer recall, native compaction, resume and fork**. M2 is implemented and
-covered by process/SDK tests; its real-model acceptance is pending. M3 is planned.
+pre-answer recall, native compaction, resume and fork**. **M2 verification passed**
+with independent processes, actual SDK sessions and real-model recovery/continuity.
+M3 is planned.
 
 ---
 
@@ -117,7 +118,9 @@ lock, [#9](https://github.com/escapeWu/pi-cc-memory/issues/9) settings surface,
 lock recovery and cross-process restoration. `test/integration/m2.test.ts` checks
 Pi's native compactor, branch notes, restore and config updates; `test/m2-config.test.ts`
 checks precedence and invalid values. `npm run verify:m2` is the separate real-model
-acceptance entrypoint and uses only temporary synthetic data.
+acceptance entrypoint and uses only temporary synthetic data. Real-model
+acceptance confirmed exact recovery in a new session and preservation of the
+unfinished ticket/decision after native compaction ([PR #15](https://github.com/escapeWu/pi-cc-memory/pull/15)).
 
 **Explicitly out of scope:** automatic extraction of new facts, cross-session
 consolidation, team sync.

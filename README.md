@@ -14,8 +14,7 @@ Two stores:
   Can be disabled entirely. Routing is always an explicit `scope`, never guessed
   from the memory type.
 
-> Status: **M2 implemented; process/SDK verification passed, real-model acceptance
-> pending**. Session continuity notes, recoverable deletion, cross-process locking
+> Status: **M2 verified with process/SDK tests and real-model acceptance**. Session continuity notes, recoverable deletion, cross-process locking
 > and Pi settings extend the M1 memory/recall path. Background extraction and
 > consolidation remain planned for M3. See [docs/milestones.md](docs/milestones.md).
 
@@ -202,8 +201,8 @@ Core logic (`src/core/`) has no Pi imports and is tested without a runtime.
 ## Disclaimer
 
 This is an independent implementation, not affiliated with Anthropic or the Pi
-maintainers. M1 is verified in isolated Pi SDK sessions, with real model writes
-and pre-answer recall. Interactive terminal rendering and coexistence with other
+maintainers. M1/M2 are verified in isolated Pi SDK sessions, with real model
+writes/recall, recoverable deletion and native compaction continuity. Interactive terminal rendering and coexistence with other
 memory extensions have not been validated. See [NOTICE](NOTICE),
 [SECURITY.md](SECURITY.md) and [PR #14](https://github.com/escapeWu/pi-cc-memory/pull/14).
 
