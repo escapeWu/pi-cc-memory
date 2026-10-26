@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, test } from "node:test";
@@ -39,13 +39,13 @@ describe("identity", () => {
 		assert.equal(canonicalRootFromGitEntry(entry?.gitPath ?? "", worktree), main);
 
 		const identity = resolveProjectIdentity(worktree);
-		assert.equal(identity.projectRoot, main);
+		assert.equal(identity.projectRoot, await realpath(main));
 	});
 
 	test("falls back to the resolved cwd outside Git", async () => {
 		const dir = await tempDir();
 		const identity = resolveProjectIdentity(dir);
-		assert.equal(identity.projectRoot, dir);
+		assert.equal(identity.projectRoot, await realpath(dir));
 		assert.ok(identity.slug.length > 0);
 	});
 });

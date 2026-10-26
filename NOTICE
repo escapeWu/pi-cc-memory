@@ -17,9 +17,10 @@ Reference analysis
 
 No warranty
   This software is provided "AS IS", without warranty of any kind. It is at the
-  M1 stage: lifecycle behavior such as prompt injection, compaction and live
-  model recall has not been verified in a real Pi session. Review memory content
-  and paths before relying on it in sensitive repositories.
+  M1 stage: lifecycle behavior is verified in isolated Pi SDK sessions, with real
+  model writes and recall. Interactive terminal rendering and coexistence with
+  other memory extensions have not been validated. Review memory content and
+  paths before relying on it in sensitive repositories.
 
 Third-party components
   Runtime dependencies are resolved through the Pi host. See package.json for the

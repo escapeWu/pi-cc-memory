@@ -109,9 +109,10 @@ export class MemoryRouter {
 	}
 
 	/** Newest-first across both stores; ties keep project ahead of global. */
-	async listHeaders(limit: number): Promise<ScopedHeader[]> {
+	async listHeaders(limit: number, selectedScope?: MemoryScope): Promise<ScopedHeader[]> {
 		const merged: ScopedHeader[] = [];
-		for (const { scope, store } of this.sources()) {
+		const sources = selectedScope ? [{ scope: selectedScope, store: this.store(selectedScope) }] : this.sources();
+		for (const { scope, store } of sources) {
 			const headers = await store.listHeaders(limit);
 			for (const header of headers) merged.push({ ...header, scope });
 		}
@@ -159,9 +160,10 @@ export class MemoryRouter {
 		return (await this.global.readTopic(path)) ? "global" : undefined;
 	}
 
-	async search(query: string, options: { limit: number; candidates: number }): Promise<ScopedSearchHit[]> {
+	async search(query: string, options: { limit: number; candidates: number; scope?: MemoryScope }): Promise<ScopedSearchHit[]> {
 		const hits: ScopedSearchHit[] = [];
-		for (const { scope, store } of this.sources()) {
+		const sources = options.scope ? [{ scope: options.scope, store: this.store(options.scope) }] : this.sources();
+		for (const { scope, store } of sources) {
 			if (hits.length >= options.limit) break;
 			const found = await searchStore(store, query, {
 				limit: options.limit - hits.length,

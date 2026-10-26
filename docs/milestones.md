@@ -3,7 +3,8 @@
 Three milestones, each independently useful. A milestone is done only when its
 exit criteria are verified in a real Pi session, not merely merged.
 
-Status: **M1 code complete, pre-release**. M2/M3 are planned.
+Status: **M1 verified on Pi 1.2.0 SDK sessions, including real model writes,
+pre-answer recall, native compaction, resume and fork**. M2/M3 are planned; the global tier from M2 is already available.
 
 ---
 
@@ -52,13 +53,19 @@ summaries, team sync, agent-scoped stores, settings-file UI, data migration.
 
 | Issue | Scope | Local status |
 | --- | --- | --- |
-| [#1](https://github.com/escapeWu/pi-cc-memory/issues/1) M1-1 项目身份与 store 目录解析 | canonical root, slug, paths | implemented, tested |
-| [#2](https://github.com/escapeWu/pi-cc-memory/issues/2) M1-2 主题文件与索引 codec | format, budgets, validation | implemented, tested |
-| [#3](https://github.com/escapeWu/pi-cc-memory/issues/3) M1-3 维护规则注入 | policy prompt section | implemented, live check pending |
-| [#4](https://github.com/escapeWu/pi-cc-memory/issues/4) M1-4 索引加载与生命周期 | load, inject, lifecycle | implemented, compaction/branch check pending |
-| [#5](https://github.com/escapeWu/pi-cc-memory/issues/5) M1-5 自动召回 | selection, budgets, degradation | implemented, live model check pending |
+| [#1](https://github.com/escapeWu/pi-cc-memory/issues/1) M1-1 项目身份与 store 目录解析 | canonical root, slug, paths | verified with actual Git worktree + SDK sessions |
+| [#2](https://github.com/escapeWu/pi-cc-memory/issues/2) M1-2 主题文件与索引 codec | format, budgets, validation | verified, including ancestor symlink rejection |
+| [#3](https://github.com/escapeWu/pi-cc-memory/issues/3) M1-3 维护规则注入 | policy prompt section | single section verified in actual model transcript |
+| [#4](https://github.com/escapeWu/pi-cc-memory/issues/4) M1-4 索引加载与生命周期 | load, inject, lifecycle | SDK compaction/tree/resume/fork verified |
+| [#5](https://github.com/escapeWu/pi-cc-memory/issues/5) M1-5 自动召回 | selection, budgets, degradation | real selector and pre-answer recall verified |
 
-M1 stays open until a real Pi session verifies the unchecked criteria in #3–#5.
+`test/integration/runtime.test.ts` loads the extension through Pi's actual
+resource loader and runner. It checks the SDK lifecycle with a deterministic
+provider. `scripts/verify-live.ts` separately checks real model behavior with
+synthetic topics; the prompt assertions use the finalized session transcript,
+not the idle `session.systemPrompt` getter ([PR #14](https://github.com/escapeWu/pi-cc-memory/pull/14)).
+This evidence covers the SDK host; installing beside other memory extensions or
+interactive terminal rendering has not been validated.
 
 ---
 
@@ -76,8 +83,9 @@ Pi already owns compaction. M2 extends it rather than replacing it.
 2. **Compaction cooperation** — pass the note as focused `customInstructions` in
    `session_before_compact`, or supply an extension compaction only if the note is
    provably better than the native summary. Fall back to native compaction.
-3. **Post-compact refresh** — after `session_compact` and `session_tree`, recompute
-   the injected index/recall budget so stale context is never reused.
+3. **Session-note refresh** — update M2's session note after `session_compact` and
+   `session_tree`. M1 already reads fresh indexes and derives recall budgets from
+   the finalized active context on every run.
 4. **Forget safety** — tombstone or recovery record so a mistaken `forget` can be
    restored; keep the index consistent.
 5. **Cross-process locking** — replace the in-process mutex with a lock file that
@@ -152,4 +160,3 @@ extraction, [#11](https://github.com/escapeWu/pi-cc-memory/issues/11) auto dream
 - Team/shared store with a documented sync contract (deletes included).
 - Explicit, opt-in migration from `~/.claude/projects/*/memory` and existing
   `~/.pi/agent/memory` layouts.
-- Optional global user store alongside per-project memory.

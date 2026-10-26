@@ -61,7 +61,7 @@ export function buildMemoryPolicy(input: MemoryPolicyInput): string {
 		"",
 		`Use the \`${tool}\` tool with action \`write\`. Give every memory a scope, a short title, one specific description, a type, and a body.`,
 		"One topic per file. Before creating a file, check the index or search for an existing topic and update it instead.",
-		`After a successful write, add or refresh its single-line pointer in that store's \`${INDEX_FILENAME}\` (action \`index\` with the same scope).`,
+		`The write action automatically updates its pointer in that store's \`${INDEX_FILENAME}\`. Check \`indexUpdated\`; action \`index\` only reads the index.`,
 		"",
 		"## What not to save",
 		"",
@@ -76,7 +76,9 @@ export function buildMemoryPolicy(input: MemoryPolicyInput): string {
 		"",
 		"## How to recall",
 		"",
-		`- Read the \`${INDEX_FILENAME}\` indexes for orientation; use \`${tool}\` action \`read\` with a scope, and action \`search\` for narrow terms.`,
+		input.includeIndex
+			? `- Use the injected indexes for orientation; use \`${tool}\` action \`read\` with a scope, or \`search\` for narrow terms.`
+			: `- Relevant topics may be recalled before your answer. Indexes are not injected in recall mode; use \`${tool}\` action \`read\` or \`search\` when more context is needed.`,
 		"- Memories are point-in-time observations. Before asserting a file, function, flag, or endpoint exists, verify it in the current workspace.",
 		"- When a memory conflicts with current state, trust what you observe and update or forget the stale memory.",
 		"- If asked to ignore memory, do not apply, cite, or compare against remembered content.",

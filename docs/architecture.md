@@ -49,9 +49,11 @@ Two store roots:
 └── *.md           topic files with name/description/type frontmatter
 ```
 
-Project identity is the canonical Git working tree (linked worktrees map to the
-main repository). The slug is readable text plus an 8-character hash of the
-resolved path, so two different paths cannot collide after sanitization.
+Project identity is the physical canonical Git working tree (linked worktrees
+map to the main repository). Filesystem aliases such as macOS `/var` and
+`/private/var` resolve to the same identity ([Issue #1](https://github.com/escapeWu/pi-cc-memory/issues/1)).
+The slug is readable text plus an 8-character hash of the resolved path, so two
+different paths cannot collide after sanitization.
 
 ## Routing (scope, not type)
 
@@ -61,8 +63,8 @@ write  -> scope = tool input ?? PI_CC_MEMORY_DEFAULT_SCOPE ?? "project"
        -> type/scope mismatch               => warning on the result, write lands
 read   -> explicit scope, else project first then global (resolved scope returned)
 forget -> same resolution; reports when the path still exists in the other store
-list   -> both stores, newest first, each row labelled with its scope
-search -> project rows first, then global rows, labelled
+list   -> select scope when given, then newest-first and limit
+search -> select scope before applying the result limit; otherwise project first
 index  -> one store when scoped, otherwise both sections
 ```
 
@@ -80,12 +82,17 @@ memory tool (action=write)
   -> enforce topic byte budget
   -> [keyed mutex per store]
        atomic topic write (temp + rename)
-       read index -> replace or append entry -> truncate -> atomic index write
+       read complete index -> replace or append entry -> atomic index write
+  -> bounded index view at read/injection time (complete entries stay on disk)
   -> report created / indexUpdated / warnings
 ```
 
 The index update never fabricates success: if it fails after the topic write, the
 tool result contains a warning and `indexUpdated: false`.
+Topic and ancestor symlinks, nested hidden paths, and symlinked indexes are
+rejected; this includes a new topic whose leaf does not exist yet. Index views
+include their truncation warning within the configured line/byte limits
+([Issue #2](https://github.com/escapeWu/pi-cc-memory/issues/2)).
 
 ## Read path
 
@@ -102,8 +109,17 @@ session_shutdown     -> drop cached session state
 Recall is off by default. When enabled, the index is not injected; instead up to
 five topics are selected from a frontmatter manifest by the session model and
 attached to the run as a hidden custom message. Selection is bounded by a
-timeout, a per-file byte cap and a per-session byte budget derived from earlier
-recall messages on the active branch. Failures degrade to "no recall".
+timeout, a per-file byte cap and a current-context byte budget. The wrapper,
+separators and truncation notice all count against that budget. Selection has a
+hard deadline even if a provider ignores cancellation; failures degrade to
+"no recall" ([Issue #5](https://github.com/escapeWu/pi-cc-memory/issues/5)).
+
+`readRecallUsage()` reads `sessionManager.buildSessionProjection().messages`,
+not the raw branch. Native compaction only releases budget for recalled messages
+that leave effective context; kept messages remain counted. Tree navigation,
+resume, fork and context edits therefore use the host's authoritative state,
+without a second branch cache or a custom compaction hook
+([Issue #4](https://github.com/escapeWu/pi-cc-memory/issues/4)).
 
 ## Known gaps (tracked by milestones)
 
@@ -111,7 +127,7 @@ recall messages on the active branch. Failures degrade to "no recall".
 | --- | --- |
 | Background extraction of durable facts | M3 |
 | Cross-session consolidation / prune | M3 |
-| Session memory / compaction integration | M2 |
+| Session notes to guide native compaction | M2 |
 | Cross-process store locking (only in-process mutex) | M2 hardening |
 | Ranking beyond substring search and model selection | M3 |
 | Settings-file configuration (env vars only) | M2 |

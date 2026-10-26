@@ -127,6 +127,7 @@ export default function ccMemory(pi: ExtensionAPI): void {
 		const selector = createPiSelector(ctx, {
 			...(state.config.recall.modelRef ? { modelRef: state.config.recall.modelRef } : {}),
 			timeoutMs: state.config.recall.timeoutMs,
+			maxFiles: state.config.recall.maxFiles,
 			onWarning: (message) => {
 				if (ctx.hasUI) ctx.ui.notify(`cc-memory: ${message}`, "warning");
 			},
@@ -180,7 +181,7 @@ export default function ccMemory(pi: ExtensionAPI): void {
 						});
 					}
 					case "list": {
-						const headers = (await state.router.listHeaders(limit)).filter((header) => scope === undefined || header.scope === scope);
+						const headers = await state.router.listHeaders(limit, scope);
 						const text = headers.length
 							? headers
 									.map((header) => `- [${header.scope}/${header.type ?? "?"}] ${header.path} — ${header.description ?? "(no description)"}`)
@@ -243,12 +244,12 @@ export default function ccMemory(pi: ExtensionAPI): void {
 						const hits = await state.router.search(params.query, {
 							limit,
 							candidates: state.config.recall.maxCandidates,
+							...(scope ? { scope } : {}),
 						});
-						const filtered = scope ? hits.filter((hit) => hit.scope === scope) : hits;
-						const text = filtered.length
-							? filtered.map((hit) => `- ${hit.scope}:${hit.path} [${hit.type ?? "?"}]: ${hit.snippet}`).join("\n")
+						const text = hits.length
+							? hits.map((hit) => `- ${hit.scope}:${hit.path} [${hit.type ?? "?"}]: ${hit.snippet}`).join("\n")
 							: "No matching memories.";
-						return textResult(text, { action: params.action, count: filtered.length });
+						return textResult(text, { action: params.action, count: hits.length });
 					}
 				}
 			} catch (error) {

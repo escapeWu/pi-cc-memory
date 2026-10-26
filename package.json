@@ -28,8 +28,10 @@
 	],
 	"scripts": {
 		"check": "tsc -p tsconfig.json --noEmit",
-		"test": "node --test test/*.test.ts",
-		"lint": "biome check src test"
+		"test": "node --test test/*.test.ts test/integration/*.test.ts",
+		"test:integration": "node --test test/integration/*.test.ts",
+		"verify:live": "node scripts/verify-live.ts",
+		"lint": "biome check src test scripts"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.0",

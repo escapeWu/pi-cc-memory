@@ -192,28 +192,21 @@ export function truncateIndex(raw: string, limits: { maxLines?: number; maxBytes
 	const lineCount = lines.length;
 	const byteCount = byteLength(trimmed);
 
-	let kept = lines;
-	let truncated = false;
-
-	if (lines.length > maxLines) {
-		kept = lines.slice(0, maxLines);
-		truncated = true;
+	const kept: string[] = [];
+	let usedBytes = 0;
+	for (const line of lines) {
+		const nextBytes = usedBytes + byteLength(line) + (kept.length ? 1 : 0);
+		if (kept.length >= maxLines || nextBytes > maxBytes) break;
+		kept.push(line);
+		usedBytes = nextBytes;
 	}
-
-	let content = kept.join("\n");
-	if (byteLength(content) > maxBytes) {
-		const budget = [...kept];
-		while (budget.length > 0 && byteLength(budget.join("\n")) > maxBytes) {
-			budget.pop();
-		}
-		content = budget.join("\n");
-		truncated = true;
-	}
-
+	const truncated = kept.length < lines.length;
 	if (truncated) {
-		content += `\n\n> WARNING: ${INDEX_FILENAME} exceeded ${maxLines} lines or ${maxBytes} UTF-8 bytes. Only part of the index was loaded. Keep each entry to one line under ~150 characters and move detail into topic files.`;
+		const warning = `> WARNING: ${INDEX_FILENAME} truncated; use memory list/read for more topics.`;
+		while (kept.length && (kept.length + 1 > maxLines || byteLength([...kept, warning].join("\n")) > maxBytes)) kept.pop();
+		if (maxLines >= 1 && byteLength(warning) <= maxBytes) kept.push(warning);
 	}
-
+	const content = kept.join("\n");
 	return { content, lineCount, byteCount, truncated };
 }
 
@@ -242,7 +235,7 @@ export function assertSafeTopicPath(path: string): string {
 	if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
 		throw new Error(`memory path contains an invalid segment: ${path}`);
 	}
-	if (segments[0]?.startsWith(".")) throw new Error(`memory path must not target hidden files: ${path}`);
+	if (segments.some((segment) => segment.startsWith("."))) throw new Error(`memory path must not target hidden files: ${path}`);
 	if (!normalized.toLowerCase().endsWith(".md")) throw new Error(`memory path must end with .md: ${path}`);
 	if (normalized.toLowerCase() === INDEX_FILENAME.toLowerCase()) {
 		throw new Error("MEMORY.md is an index; update it through the memory store, not as a topic file");

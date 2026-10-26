@@ -126,13 +126,17 @@ export async function recall(
 		const prefix = note ? `${note}\n\n` : "";
 		const headerLine = `Memory (${candidate.scope}:${file.path}, type ${file.frontmatter.type}, saved ${memoryAgeDays(file.mtimeMs)}d ago):`;
 		const full = `${headerLine}\n${prefix}${file.body}`;
-		const budget = Math.min(limits.maxFileBytes, remaining);
-		if (budget <= 0) break;
-
-		const truncated = byteLength(full) > budget;
-		const content = truncated
-			? `${truncateUtf8(full, budget)}\n\n> This memory was truncated at ${budget} bytes. Read \`${file.path}\` for the full file.`
-			: full;
+		// Include the serialized wrapper, separator and truncation notice in both
+		// budgets; usage is reconstructed from this exact message after resume.
+		const separatorBytes = files.length ? byteLength("\n\n") : 0;
+		const budget = Math.min(limits.maxFileBytes, remaining - separatorBytes);
+		const wrapperBytes = byteLength(formatRecallMessage([{ scope: candidate.scope, path: file.path, content: "" }]));
+		const bodyBudget = budget - wrapperBytes;
+		if (bodyBudget <= 0) continue;
+		const truncated = byteLength(full) > bodyBudget;
+		const notice = `\n\n> Truncated. Read ${recallKey(candidate.scope, file.path)} with the memory tool for the full file.`;
+		if (truncated && byteLength(notice) >= bodyBudget) continue;
+		const content = truncated ? `${truncateUtf8(full, bodyBudget - byteLength(notice))}${notice}` : full;
 
 		files.push({
 			scope: candidate.scope,
@@ -143,7 +147,7 @@ export async function recall(
 			ageDays: memoryAgeDays(file.mtimeMs),
 			truncated,
 		});
-		remaining -= byteLength(content);
+		remaining -= wrapperBytes + byteLength(content) + separatorBytes;
 	}
 
 	return files.length > 0
@@ -171,23 +175,24 @@ function resolveSelection(
 		if (isMemoryScope(scope)) return byKey.get(recallKey(scope, path));
 	}
 
-	return project.get(value);
+	return project.get(value) ?? byKey.get(recallKey("global", value));
 }
 
 /** Cut on a character boundary so multi-byte characters are never split. */
 export function truncateUtf8(value: string, maxBytes: number): string {
 	if (byteLength(value) <= maxBytes) return value;
+	const chars = [...value];
 	let low = 0;
-	let high = value.length;
+	let high = chars.length;
 	while (low < high) {
 		const mid = Math.ceil((low + high) / 2);
-		if (byteLength(value.slice(0, mid)) <= maxBytes) low = mid;
+		if (byteLength(chars.slice(0, mid).join("")) <= maxBytes) low = mid;
 		else high = mid - 1;
 	}
-	return value.slice(0, low);
+	return chars.slice(0, low).join("");
 }
 
-export function formatRecallMessage(files: readonly RecalledFile[]): string {
+export function formatRecallMessage(files: readonly Pick<RecalledFile, "scope" | "path" | "content">[]): string {
 	return files.map((file) => `<memory scope="${file.scope}" path="${file.path}">\n${file.content}\n</memory>`).join("\n\n");
 }
 
@@ -214,11 +219,11 @@ export async function searchStore(store: MemoryStore, query: string, options: { 
 		const file = await store.readTopic(header.path);
 		if (!file) continue;
 
-		const haystack = `${file.frontmatter.description}\n${file.body}`.toLowerCase();
-		const index = haystack.indexOf(needle);
+		const text = `${file.frontmatter.description}\n${file.body}`;
+		const index = text.toLowerCase().indexOf(needle);
 		if (index === -1) continue;
 
-		const window = file.body
+		const window = text
 			.slice(Math.max(0, index - 80), index + needle.length + 160)
 			.replace(/\s+/g, " ")
 			.trim();

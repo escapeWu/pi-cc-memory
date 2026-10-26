@@ -4,7 +4,7 @@ Guidance for coding agents working in this repository.
 
 ## What this is
 
-A Pi coding-agent extension that provides project-scoped Markdown memory. It is
+A Pi coding-agent extension that provides project/global Markdown memory. It is
 derived from an analysis of Claude Code's memory pipeline
 (`docs/claude-code-memory-pipeline.md`), not a copy of that codebase.
 
@@ -13,8 +13,10 @@ derived from an analysis of Claude Code's memory pipeline
 ```bash
 npm install --include=dev   # this machine has npm omit=dev globally
 npm run check               # tsc --noEmit
-npm test                    # node --test test/*.test.ts
-npm run lint                # biome check src test
+npm test                    # core/adapter tests + actual SDK integration tests
+npm run test:integration    # actual Pi SDK sessions, deterministic provider
+npm run lint                # biome check src test scripts
+PI_CC_MEMORY_LIVE_MODEL=provider/model npm run verify:live  # explicit network calls, synthetic data
 ```
 
 There is no build step: Pi loads `src/extension.ts` through jiti.
