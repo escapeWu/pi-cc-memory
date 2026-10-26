@@ -3,8 +3,8 @@
 Three milestones, each independently useful. A milestone is done only when its
 exit criteria are verified in a real Pi session, not merely merged.
 
-Status: **M1 verified on Pi 1.2.0 SDK sessions, including real model write and
-recall**. M2/M3 are planned; the global tier from M2 is already available.
+Status: **M1 verified on Pi 1.2.0 SDK sessions, including real model writes,
+pre-answer recall, native compaction, resume and fork**. M2/M3 are planned; the global tier from M2 is already available.
 
 ---
 

@@ -127,7 +127,7 @@ without a second branch cache or a custom compaction hook
 | --- | --- |
 | Background extraction of durable facts | M3 |
 | Cross-session consolidation / prune | M3 |
-| Session memory / compaction integration | M2 |
+| Session notes to guide native compaction | M2 |
 | Cross-process store locking (only in-process mutex) | M2 hardening |
 | Ranking beyond substring search and model selection | M3 |
 | Settings-file configuration (env vars only) | M2 |
