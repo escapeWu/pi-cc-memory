@@ -1,0 +1,26 @@
+pi-cc-memory
+Copyright (c) 2026 escapeWu
+
+This project is an independent implementation of a file-based memory system for
+the Pi coding agent. It is not affiliated with, endorsed by, or sponsored by
+Anthropic, PBC or the Pi project maintainers.
+
+Scope of the source code
+  All source code in this repository was written for this project. No source
+  code, build output, or prompt text from another product is included.
+
+Reference analysis
+  docs/claude-code-memory-pipeline.md is an independent behavioral analysis of a
+  separately obtained codebase, kept as design input. It contains architectural
+  observations and internal identifiers, not copied source code, and is not part
+  of the runtime implementation.
+
+No warranty
+  This software is provided "AS IS", without warranty of any kind. It is at the
+  M1 stage: lifecycle behavior such as prompt injection, compaction and live
+  model recall has not been verified in a real Pi session. Review memory content
+  and paths before relying on it in sensitive repositories.
+
+Third-party components
+  Runtime dependencies are resolved through the Pi host. See package.json for the
+  declared peer dependencies and LICENSE for the license of this project.

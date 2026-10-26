@@ -131,6 +131,13 @@ Core logic (`src/core/`) has no Pi imports and is tested without a runtime.
 - [docs/architecture.md](docs/architecture.md) — layers, storage, gaps.
 - [docs/milestones.md](docs/milestones.md) — M1, M2, M3 and exit criteria.
 
+## Disclaimer
+
+This is an independent implementation, not affiliated with Anthropic or the Pi
+maintainers. It is at the M1 stage: prompt injection, compaction behavior and live
+model recall have not been verified in a real Pi session. See [NOTICE](NOTICE) and
+[SECURITY.md](SECURITY.md).
+
 ## License
 
 MIT

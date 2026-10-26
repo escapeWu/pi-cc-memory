@@ -1,6 +1,6 @@
 {
 	"name": "pi-cc-memory",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "Project- and user-scoped, file-based memory for Pi, modeled on Claude Code auto memory",
 	"type": "module",
 	"main": "src/extension.ts",
@@ -21,6 +21,9 @@
 		"src",
 		"resources",
 		"README.md",
+		"CHANGELOG.md",
+		"NOTICE",
+		"SECURITY.md",
 		"LICENSE"
 	],
 	"scripts": {
@@ -45,6 +48,14 @@
 		"typebox": ">=1.0.0"
 	},
 	"publishConfig": {
-		"access": "private"
-	}
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/escapeWu/pi-cc-memory.git"
+	},
+	"bugs": {
+		"url": "https://github.com/escapeWu/pi-cc-memory/issues"
+	},
+	"homepage": "https://github.com/escapeWu/pi-cc-memory#readme"
 }

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1 — publication metadata
+
+- `repository`, `homepage`, `bugs`; `publishConfig.access` is now `public`.
+- Added `NOTICE` (independent implementation, scope of the reference analysis) and
+  `SECURITY.md` (reporting channel, M1 security scope).
+- README states the M1 verification status and the lack of affiliation.
+
 ## 0.2.0 — two-tier memory
 
 - Global store at `<agentDir>/cc-memory/global/` for cross-project facts.
