@@ -1,0 +1,50 @@
+{
+	"name": "pi-cc-memory",
+	"version": "0.1.0",
+	"description": "Project-scoped, file-based memory for Pi, modeled on Claude Code's auto memory",
+	"type": "module",
+	"main": "src/extension.ts",
+	"pi": {
+		"extensions": [
+			"./src/extension.ts"
+		]
+	},
+	"keywords": [
+		"pi",
+		"pi-coding-agent",
+		"pi-package",
+		"memory",
+		"agent-memory"
+	],
+	"license": "MIT",
+	"files": [
+		"src",
+		"resources",
+		"README.md",
+		"LICENSE"
+	],
+	"scripts": {
+		"check": "tsc -p tsconfig.json --noEmit",
+		"test": "node --test test/*.test.ts",
+		"lint": "biome check src test"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.0",
+		"@earendil-works/pi-ai": "1.2.0",
+		"@earendil-works/pi-coding-agent": "1.2.0",
+		"@types/node": "^22.19.0",
+		"typebox": "1.3.27",
+		"typescript": "^5.9.3"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": ">=1.2.0",
+		"@earendil-works/pi-coding-agent": ">=1.2.0",
+		"typebox": ">=1.0.0"
+	},
+	"publishConfig": {
+		"access": "private"
+	}
+}
