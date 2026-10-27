@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — benchmarks and selector budget fix
 
 - Benchmarks (`bench/`): L1 store/prompt cost vs. topic count with cross-process
   contention; L2 recall quality over a labelled bilingual corpus with `oracle`,
