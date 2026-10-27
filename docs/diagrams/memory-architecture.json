@@ -1,0 +1,219 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "pi-cc-memory：memory 机制架构",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "inject-path",
+        "label": "注入与召回路径",
+        "focus": ["pihost", "ext", "recall", "model", "router", "store"],
+        "note": "每次回答前：policy 段与索引视图进入上下文，召回开启时改由模型挑主题。"
+      },
+      {
+        "id": "write-path",
+        "label": "写入与提交",
+        "focus": ["ext", "router", "store", "lockfs", "pistore", "gstore", "recovery"],
+        "note": "scope 路由到两个 store，锁内原子写主题并替换索引。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "pihost",
+      "type": "external",
+      "label": "Pi Host",
+      "sublabel": "扩展加载 · 生命周期",
+      "pos": [40, 190],
+      "size": [150, 64]
+    },
+    {
+      "id": "config",
+      "type": "backend",
+      "label": "config.ts",
+      "sublabel": "env > project > global",
+      "tag": "每次调用重载",
+      "pos": [270, 60],
+      "size": [150, 70]
+    },
+    {
+      "id": "ext",
+      "type": "backend",
+      "label": "extension.ts",
+      "sublabel": "钩子 · memory 工具 · /memory",
+      "tag": "唯一注册点",
+      "pos": [270, 190],
+      "size": [150, 70]
+    },
+    {
+      "id": "router",
+      "type": "backend",
+      "label": "MemoryRouter",
+      "sublabel": "scope 显式路由",
+      "pos": [490, 190],
+      "size": [150, 64]
+    },
+    {
+      "id": "recall",
+      "type": "backend",
+      "label": "recall.ts",
+      "sublabel": "清单 → 选择 → 预算",
+      "pos": [490, 320],
+      "size": [150, 64]
+    },
+    {
+      "id": "model",
+      "type": "external",
+      "label": "Session Model",
+      "sublabel": "召回选择 · 会话笔记",
+      "pos": [490, 450],
+      "size": [150, 64]
+    },
+    {
+      "id": "store",
+      "type": "backend",
+      "label": "MemoryStore",
+      "sublabel": "codec · 索引 · 主题 · 快照",
+      "pos": [710, 190],
+      "size": [150, 70]
+    },
+    {
+      "id": "lockfs",
+      "type": "security",
+      "label": "store-lock / filesystem",
+      "sublabel": "跨进程锁 · 原子写",
+      "tag": "心跳 3s / 陈旧 10s",
+      "pos": [710, 450],
+      "size": [150, 70]
+    },
+    {
+      "id": "pistore",
+      "type": "database",
+      "label": "Project Store",
+      "sublabel": "cc-memory/projects/<slug>",
+      "pos": [930, 60],
+      "size": [170, 70]
+    },
+    {
+      "id": "gstore",
+      "type": "database",
+      "label": "Global Store",
+      "sublabel": "cc-memory/global",
+      "pos": [930, 190],
+      "size": [170, 70]
+    },
+    {
+      "id": "recovery",
+      "type": "database",
+      "label": "恢复快照",
+      "sublabel": ".recovery/ 只读快照",
+      "pos": [930, 320],
+      "size": [170, 70]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "src/core：不依赖 @earendil-works/*",
+      "wraps": ["router", "recall", "store"],
+      "pad": 18
+    }
+  ],
+  "connections": [
+    {
+      "id": "host-loads-ext",
+      "from": "pihost",
+      "to": "ext",
+      "label": "加载扩展"
+    },
+    {
+      "id": "config-reload",
+      "from": "config",
+      "to": "ext",
+      "label": "重载配置",
+      "labelDy": 24
+    },
+    {
+      "id": "ext-routes",
+      "from": "ext",
+      "to": "router",
+      "label": "scope 路由",
+      "variant": "emphasis"
+    },
+    {
+      "id": "ext-recalls",
+      "from": "ext",
+      "to": "recall",
+      "label": "recall=1",
+      "variant": "dashed"
+    },
+    {
+      "id": "recall-selects",
+      "from": "recall",
+      "to": "model",
+      "label": "≤5 主题",
+      "labelDy": 24
+    },
+    {
+      "id": "router-store",
+      "from": "router",
+      "to": "store",
+      "variant": "emphasis"
+    },
+    {
+      "id": "store-locks",
+      "from": "store",
+      "to": "lockfs",
+      "label": "withStoreLock",
+      "labelDy": 24
+    },
+    {
+      "id": "store-project",
+      "from": "store",
+      "to": "pistore"
+    },
+    {
+      "id": "store-global",
+      "from": "store",
+      "to": "gstore"
+    },
+    {
+      "id": "store-snapshot",
+      "from": "store",
+      "to": "recovery",
+      "label": "快照",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "分层",
+      "items": [
+        "core 不 import @earendil-works/*，可脱离 Pi 单测",
+        "adapters 独占宿主 I/O：文件、锁、模型、会话",
+        "extension.ts 是唯一注册工具与生命周期钩子的地方"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "存储",
+      "items": [
+        "两个 store：projects/<slug> 与 global",
+        "项目身份是 Git 真实根，worktree 共享同一 store",
+        "MEMORY.md 只做导航，完整主题正文留在磁盘"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "不变量",
+      "items": [
+        "所有 store 变更都在 withStoreLock 内完成",
+        "forget 先落恢复快照，restore 不覆盖更新内容",
+        "scope 显式：global 禁用时硬失败，不回落 project"
+      ]
+    }
+  ]
+}

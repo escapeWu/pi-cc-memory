@@ -1,0 +1,155 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "memory 机制：一次会话的生命周期",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "read-path",
+        "label": "读路径：注入与召回",
+        "focus": ["sstart", "bag", "policy", "indexview", "recallsel", "attach"],
+        "note": "召回关闭时注入索引视图，开启时改由会话模型挑主题。"
+      },
+      {
+        "id": "write-path",
+        "label": "写路径：工具与提交",
+        "focus": ["indexview", "toolcall", "commit"],
+        "note": "写入先校验再取跨进程锁，锁内提交主题与索引。"
+      },
+      {
+        "id": "continuity",
+        "label": "压缩续接",
+        "focus": ["bag", "compact"],
+        "note": "压缩由 Pi 原生完成，插件只补一段有界的会话笔记。"
+      }
+    ]
+  },
+  "lanes": [
+    { "id": "pi", "label": "Pi 会话钩子" },
+    { "id": "inject", "label": "上下文注入" },
+    { "id": "memory", "label": "记忆读写" }
+  ],
+  "phases": [
+    { "id": "boot", "label": "会话启动", "fromCol": 0, "toCol": 1 },
+    { "id": "context", "label": "注入 / 召回", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "persist", "label": "写回", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [],
+  "mainPath": ["sstart", "bag", "policy", "indexview", "toolcall", "commit"],
+  "nodes": [
+    {
+      "id": "sstart",
+      "lane": "pi",
+      "col": 0,
+      "type": "backend",
+      "label": "会话启动",
+      "sublabel": "Git 根 → slug",
+      "width": 132
+    },
+    {
+      "id": "bag",
+      "lane": "pi",
+      "col": 1,
+      "type": "backend",
+      "label": "回答前钩子",
+      "sublabel": "before_agent_start",
+      "width": 132
+    },
+    {
+      "id": "compact",
+      "lane": "pi",
+      "col": 5,
+      "type": "backend",
+      "label": "压缩前钩子",
+      "sublabel": "笔记 → 原生压缩",
+      "width": 132
+    },
+    {
+      "id": "policy",
+      "lane": "inject",
+      "col": 2,
+      "type": "security",
+      "label": "维护规则",
+      "sublabel": "policy 段始终注入",
+      "width": 132
+    },
+    {
+      "id": "indexview",
+      "lane": "inject",
+      "col": 3,
+      "type": "database",
+      "label": "索引视图",
+      "sublabel": "MEMORY.md 摘要",
+      "width": 132
+    },
+    {
+      "id": "recallsel",
+      "lane": "memory",
+      "col": 2,
+      "type": "backend",
+      "label": "召回选择",
+      "sublabel": "清单 → 挑 ≤5",
+      "width": 132
+    },
+    {
+      "id": "attach",
+      "lane": "memory",
+      "col": 3,
+      "type": "messagebus",
+      "label": "hidden message",
+      "sublabel": "回答前附加正文",
+      "width": 132
+    },
+    {
+      "id": "toolcall",
+      "lane": "memory",
+      "col": 4,
+      "type": "backend",
+      "label": "memory 工具",
+      "sublabel": "写 / 读 / 遗忘 / 恢复",
+      "width": 132
+    },
+    {
+      "id": "commit",
+      "lane": "memory",
+      "col": 5,
+      "type": "database",
+      "label": "锁内提交",
+      "sublabel": "主题与索引原子写",
+      "width": 132
+    }
+  ],
+  "edges": [
+    { "id": "start-bag", "from": "sstart", "to": "bag", "role": "main" },
+    { "id": "bag-policy", "from": "bag", "to": "policy", "label": "每轮注入", "role": "main", "variant": "emphasis" },
+    { "id": "policy-index", "from": "policy", "to": "indexview", "role": "main" },
+    { "id": "index-tool", "from": "indexview", "to": "toolcall", "label": "需要持久化", "role": "main" },
+    { "id": "tool-commit", "from": "toolcall", "to": "commit", "label": "withStoreLock", "role": "main", "variant": "emphasis" },
+    { "id": "bag-recall", "from": "bag", "to": "recallsel", "label": "recall=1", "role": "branch" },
+    { "id": "recall-attach", "from": "recallsel", "to": "attach", "label": "预算内主题", "role": "branch" },
+    { "id": "attach-tool", "from": "attach", "to": "toolcall", "label": "回答后写回", "role": "branch", "variant": "dashed" },
+    { "id": "bag-compact", "from": "bag", "to": "compact", "label": "上下文将满", "role": "branch", "variant": "dashed" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "读路径：注入与召回",
+      "items": [
+        "policy 段每轮注入；召回关闭时再注入索引视图",
+        "召回开启则不注入索引，由会话模型从清单挑 ≤5 个主题",
+        "超时、模型报错或坏 JSON 都降级为无召回，本轮照常回答"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "写路径与不变量",
+      "items": [
+        "写入先校验类型、路径与字节预算，再取跨进程锁",
+        "锁内原子写主题并替换索引行；索引失败如实返回 indexUpdated:false",
+        "forget 先落 .recovery 快照；scope 显式，global 禁用时硬失败"
+      ]
+    }
+  ]
+}

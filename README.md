@@ -18,6 +18,25 @@ Two stores:
 > and Pi settings extend the M1 memory/recall path. Background extraction and
 > consolidation remain planned for M3. See [docs/milestones.md](docs/milestones.md).
 
+## Diagrams
+
+Two views of the same mechanism. They are generated from the source
+specifications in [`docs/diagrams/`](docs/diagrams).
+
+**Architecture** — Pi host → `extension.ts` wiring → host-neutral core, with the
+project and global stores and the lock/recovery path behind every mutation.
+
+![pi-cc-memory architecture: Pi Host loads extension.ts, which routes through MemoryRouter and MemoryStore to the project and global stores, with store-lock/filesystem and recovery snapshots](docs/diagrams/memory-architecture.png)
+
+**Session lifecycle** — from `session_start` through per-run injection or recall,
+a `memory` tool write committed under the store lock, and the pre-compaction note.
+
+![pi-cc-memory session lifecycle: session_start, the before-agent-start hook injecting policy and index or selecting recall topics, the memory tool writing under the store lock, and the pre-compaction note](docs/diagrams/memory-lifecycle.png)
+
+The interactive HTML versions (`memory-architecture.html`,
+`memory-lifecycle.html`) add pan/zoom, search, focus and theme switching when
+opened locally.
+
 ## Install
 
 ```bash
@@ -197,6 +216,8 @@ Core logic (`src/core/`) has no Pi imports and is tested without a runtime.
   analysis of the reference implementation this design is derived from.
 - [docs/architecture.md](docs/architecture.md) — layers, storage, gaps.
 - [docs/milestones.md](docs/milestones.md) — M1, M2, M3 and exit criteria.
+- [docs/diagrams/](docs/diagrams/) — architecture and session-lifecycle diagrams:
+  PNG previews, interactive HTML, and their JSON specifications.
 
 ## Disclaimer
 
