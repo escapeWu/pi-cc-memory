@@ -44,7 +44,7 @@ export async function prepareSessionNote(
 			{ systemPrompt: PROMPT, prompt: `Recent active branch (bounded excerpt):\n${recent}` },
 			{
 				timeoutMs: config.timeoutMs,
-				maxTokens: 1024,
+				maxTokens: 4096,
 				signal: event.signal,
 				onWarning: (message) => {
 					if (ctx.hasUI) ctx.ui.notify(`cc-memory session note: ${message}; using native compaction`, "warning");
