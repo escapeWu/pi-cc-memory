@@ -15,10 +15,10 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 import { createPiSelector } from "./adapters/pi-model.ts";
 import { RECALL_MESSAGE_TYPE, readRecallUsage } from "./adapters/pi-session.ts";
+import { memoryPromptSnapshot } from "./adapters/prompt-snapshot.ts";
 import { prepareSessionNote, readSessionNote } from "./adapters/session-note.ts";
 import { loadConfig, type MemoryConfig } from "./config.ts";
 import { type ProjectIdentity, resolveProjectIdentity } from "./core/identity.ts";
-import { buildMemoryPolicy } from "./core/policy.ts";
 import { formatRecallMessage, recall, recallKey } from "./core/recall.ts";
 import { MemoryRouter } from "./core/router.ts";
 import { isMemoryScope, MEMORY_SCOPES, type MemoryScope } from "./core/scopes.ts";
@@ -114,19 +114,9 @@ export default function ccMemory(pi: ExtensionAPI): void {
 
 	pi.on("before_agent_start", async (event, ctx) => {
 		const state = await ensure(ctx);
-		const includeIndex = !state.config.recall.enabled;
-		const indexes = includeIndex ? await state.router.readIndexes() : { project: "" };
-
 		event.systemPromptOptions.sections = {
 			...event.systemPromptOptions.sections,
-			pi_memory: buildMemoryPolicy({
-				projectRoot: state.config.storeRoot,
-				...(state.router.globalEnabled ? { globalRoot: state.config.global.root } : {}),
-				includeIndex,
-				...(includeIndex ? { projectIndex: indexes.project } : {}),
-				...(includeIndex && indexes.global !== undefined ? { globalIndex: indexes.global } : {}),
-				toolName: TOOL_NAME,
-			}),
+			pi_memory: await memoryPromptSnapshot(pi, ctx, state.config, state.router),
 		};
 
 		if (!state.config.recall.enabled || event.messageType !== "user") return;
@@ -227,6 +217,7 @@ export default function ccMemory(pi: ExtensionAPI): void {
 					case "forget": {
 						if (!params.path) return errorResult("action=forget requires path");
 						const result = await state.router.forget(params.path, scope);
+						if (result.fileRemoved) await memoryPromptSnapshot(pi, ctx, state.config, state.router, true);
 						const recovery = result.recoveryId ? `; recovery id: ${result.recoveryId} (scope=${result.scope})` : "";
 						const extra = result.alsoExistsIn ? ` (the same path still exists in scope=${result.alsoExistsIn})` : "";
 						return textResult(
@@ -237,6 +228,7 @@ export default function ccMemory(pi: ExtensionAPI): void {
 					case "restore": {
 						if (!params.recoveryId) return errorResult("action=restore requires recoveryId and the original scope");
 						const result = await state.router.restore(params.recoveryId, scope);
+						if (!result.alreadyRestored) await memoryPromptSnapshot(pi, ctx, state.config, state.router, true);
 						return textResult(`${result.alreadyRestored ? "Already restored" : "Restored"} ${result.scope}:${result.path}; index updated`, {
 							action: params.action,
 							...result,

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 — stable memory prompt snapshots
+
+- Keep the injected policy and indexes fixed across ordinary writes and external
+  memory changes, preventing memory-driven prompt-cache rebuilds. Explicit memory
+  reads, searches and index requests still use current disk contents.
+- Persist snapshots on the active session branch for resume, fork, tree navigation
+  and runtime recreation; migrate compatible existing system sections unchanged.
+- Refresh after successful compaction, forget/restore or relevant configuration
+  changes. Cancelled compaction does not refresh the snapshot.
+- Add real Pi SDK regressions for prefix stability and snapshot lifecycle.
+
 ## 0.3.0 — benchmarks and selector budget fix
 
 - Benchmarks (`bench/`): L1 store/prompt cost vs. topic count with cross-process

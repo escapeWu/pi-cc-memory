@@ -117,6 +117,7 @@ export async function openHost(options: {
 	extra?: ExtensionFactory;
 	noteTimeoutMs?: number;
 	reserveTokens?: number;
+	extensionPath?: string;
 }) {
 	const env = {
 		PI_CODING_AGENT_DIR: options.agentDir,
@@ -151,7 +152,7 @@ export async function openHost(options: {
 		noPromptTemplates: true,
 		noThemes: true,
 		noContextFiles: true,
-		additionalExtensionPaths: [fileURLToPath(new URL("../../src/extension.ts", import.meta.url))],
+		additionalExtensionPaths: [options.extensionPath ?? fileURLToPath(new URL("../../src/extension.ts", import.meta.url))],
 		extensionFactories: [probe, ...(options.extra ? [options.extra] : [])],
 	});
 	try {

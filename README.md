@@ -53,8 +53,9 @@ pi -e ./path/to/pi-cc-memory
 ## What it does
 
 - Injects a memory maintenance policy into the system prompt on every run.
-- Injects both `MEMORY.md` indexes by default, so the model can navigate topics
-  without loading their bodies.
+- Injects both `MEMORY.md` indexes as a stable session snapshot by default, so
+  the model can navigate topics without loading their bodies or rewriting the
+  cached prompt after ordinary memory writes.
 - Gives the model a `memory` tool with an explicit `scope`
   (`project | global`): `status | list | read | write | forget | restore | index | search`.
 - Warns, but does not block, when a memory type and scope suggest different tiers.
@@ -138,6 +139,28 @@ Restoring refuses to overwrite a newer, different topic. Repeating a successful
 restore keeps one index pointer. Recovery snapshots remain in the store's private
 `.recovery/` directory, excluded from list/search/recall and index rebuilding
 ([Issue #7](https://github.com/escapeWu/pi-cc-memory/issues/7)).
+
+## Stable prompt snapshots
+
+The injected policy and indexes stay byte-identical across ordinary turns,
+including after writes from this session or another session. Fresh disk contents
+remain available through `memory` actions `read`, `search` and `index`, and through
+`/memory index`. A new session captures the latest indexes.
+
+Snapshots are persisted as non-context session metadata on the active branch.
+Resume, fork, runtime recreation and tree navigation reuse that branch's snapshot;
+the metadata is not sent to the model as another message. Existing conversations
+without snapshot metadata can reuse their recorded `pi_memory` section when the
+policy, store paths, mode and default index-budget contract are compatible.
+
+A successful compaction starts a new snapshot on the next run. Cancelled or failed
+compaction leaves the old snapshot intact. Successful `forget` / `restore` actions
+refresh the snapshot for the next run, as do changes to store paths, global-store
+availability, recall mode or index budgets. Other settings still reload per call
+without resampling the indexes. These explicit changes can invalidate a provider's
+prefix cache; unrelated tool, prompt, model or upstream cache changes are outside
+the snapshot guarantee. Recall mode continues to append selected topics as
+persisted custom messages.
 
 ## Session continuity
 
