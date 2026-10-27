@@ -102,9 +102,9 @@ test("selector deadline and cancellation do not depend on provider abort coopera
 		model: { id: "test", provider: "fixture" },
 		signal: controller.signal,
 		modelRegistry: {
-			complete() {
+			streamSimple() {
 				calls++;
-				return new Promise(() => {});
+				return { result: () => new Promise(() => {}) };
 			},
 		},
 	} as unknown as ExtensionContext;

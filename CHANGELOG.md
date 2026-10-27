@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0 — benchmarks and selector budget fix
+
+- Benchmarks (`bench/`): L1 store/prompt cost vs. topic count with cross-process
+  contention; L2 recall quality over a labelled bilingual corpus with `oracle`,
+  `lexical`, `substring` and real-model selectors. Project skill
+  `.agents/skills/memory-benchmark/` documents running, comparing and debugging.
+- Fix: the selector and session-note model calls used a 512/1024 output limit that
+  reasoning models exhausted on thinking, silently skipping recall (about 14% of
+  calls in the benchmark). They now request minimal reasoning effort with a 2048/4096
+  limit, and truncation or provider errors raise a warning. Calls go through
+  `streamSimple(...).result()`.
+
 ## 0.2.1 — publication metadata
 
 - `repository`, `homepage`, `bugs`; `publishConfig.access` is now `public`.

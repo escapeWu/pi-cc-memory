@@ -16,6 +16,13 @@ function resolveModel(ctx: ExtensionContext, modelRef?: string) {
 	}
 	return ctx.model ?? ctx.modelRegistry.getAvailable()[0];
 }
+/**
+ * Output budget when the caller gives none. Reasoning models spend this on
+ * thinking before the first answer token, so a small budget silently produces
+ * an empty `length` response (measured: ~14% of selector calls at 512).
+ */
+export const DEFAULT_MAX_TOKENS = 2048;
+
 export interface TextOptions {
 	modelRef?: string;
 	timeoutMs: number;
@@ -45,18 +52,34 @@ export async function completePiText(
 	if (signals.some((signal) => signal.aborted)) controller.abort();
 	try {
 		if (controller.signal.aborted) await aborted;
+		// Selection and note writing are short, bounded tasks: ask reasoning models for
+		// the lowest effort. Providers without reasoning ignore the option.
 		const response = await Promise.race([
-			ctx.modelRegistry.complete(
-				model,
-				{
-					systemPrompt: input.systemPrompt,
-					messages: [{ role: "user", timestamp: Date.now(), content: [{ type: "text", text: input.prompt }] }],
-				},
-				{ maxTokens: options.maxTokens ?? 512, signal: controller.signal, cacheRetention: "none" },
-			),
+			ctx.modelRegistry
+				.streamSimple(
+					model,
+					{
+						systemPrompt: input.systemPrompt,
+						messages: [{ role: "user", timestamp: Date.now(), content: [{ type: "text", text: input.prompt }] }],
+					},
+					{
+						maxTokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
+						signal: controller.signal,
+						cacheRetention: "none",
+						...(model.reasoning ? { reasoning: "minimal" as const } : {}),
+					},
+				)
+				.result(),
 			aborted,
 		]);
-		if (response.stopReason === "error" || response.stopReason === "aborted" || response.stopReason === "length") return undefined;
+		if (response.stopReason === "length") {
+			options.onWarning?.("memory model ran out of output tokens before answering (reasoning budget); skipping this step");
+			return undefined;
+		}
+		if (response.stopReason === "error" || response.stopReason === "aborted") {
+			options.onWarning?.(`memory model call failed${response.errorMessage ? `: ${response.errorMessage}` : ""}`);
+			return undefined;
+		}
 		return (
 			response.content
 				.filter((b): b is { type: "text"; text: string } => b.type === "text")

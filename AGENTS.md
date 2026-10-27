@@ -15,10 +15,14 @@ npm install --include=dev   # this machine has npm omit=dev globally
 npm run check               # tsc --noEmit
 npm test                    # core/adapter tests + actual SDK integration tests
 npm run test:integration    # actual Pi SDK sessions, deterministic provider
-npm run lint                # biome check src test scripts
+npm run lint                # biome check src test scripts bench
+npm run bench               # L1 store cost + L2 offline recall quality (no network); see bench/README.md
 PI_CC_MEMORY_LIVE_MODEL=provider/model npm run verify:live  # M1, explicit network calls
 PI_CC_MEMORY_LIVE_MODEL=provider/model npm run verify:m2    # M2, synthetic data only
 ```
+
+`bench/` is measurement tooling (synthetic data, temp dirs). It may import `src/` but
+nothing in `src/` may import it; `npm run bench:live` makes explicit network calls.
 
 There is no build step: Pi loads `src/extension.ts` through jiti.
 
