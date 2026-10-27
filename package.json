@@ -31,7 +31,11 @@
 		"test": "node --test test/*.test.ts test/integration/*.test.ts",
 		"test:integration": "node --test test/integration/*.test.ts",
 		"verify:live": "node scripts/verify-live.ts",
-		"lint": "biome check src test scripts",
+		"lint": "biome check src test scripts bench",
+		"bench": "node bench/l1.ts && node bench/l2.ts",
+		"bench:l1": "node bench/l1.ts",
+		"bench:l2": "node bench/l2.ts",
+		"bench:live": "node bench/l2.ts --selectors oracle,lexical,llm --repeats 3 --concurrency 4 --slices",
 		"verify:m2": "node scripts/verify-m2-live.ts"
 	},
 	"devDependencies": {

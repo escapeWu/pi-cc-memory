@@ -193,6 +193,44 @@ directory; it does not install the plugin or change your existing memory.
 
 Core logic (`src/core/`) has no Pi imports and is tested without a runtime.
 
+## Benchmark
+
+The test suite checks correctness; `bench/` measures quality and cost. It uses
+synthetic data in temp directories and never touches your real memory.
+
+```bash
+npm run bench:l1     # store cost, prompt size and reach vs. topic count (no model)
+npm run bench:l2     # recall quality, offline baselines (no model)
+PI_CC_MEMORY_LIVE_MODEL=provider/model npm run bench:live   # L2 with the real selector (network)
+```
+
+- **L1** times `listHeaders`, `recall()`, `search` and locked `upsert` at 50–5000
+  topics, reports what the selector and the system prompt receive per turn, how
+  much of the store recall/search/index injection can reach, and cross-process
+  write contention.
+- **L2** runs the production `recall()` over a labelled bilingual corpus (single,
+  multi-topic, near-miss and off-topic queries) and scores selectors against
+  `oracle` (ceiling), `lexical` and `substring` baselines. It separates misses
+  caused by the candidate window from misses caused by the selector.
+
+First findings (one run, seed 1, 2026-10-27; indicative, not a guarantee):
+
+| Topics | Finding |
+| --- | --- |
+| 1000 | recall/search reach only the newest 200 topics (20%); 19% of index lines fit the injection budget |
+| 5000 | `listHeaders` costs ~430 ms per turn because it reads every topic head before sorting |
+| 100 | real selector (`sub2api/deepseek-flash`): recall 98%, precision 97%, 0% false recall on off-topic prompts, 38% on 8 near-miss prompts; the substring `search` baseline finds 0% of natural-language prompts |
+
+The first run also exposed a selector bug that benchmarking fixed: with reasoning
+models a 512-token output limit was consumed by thinking, so about 14% of calls
+returned nothing silently. The default is now 2048 tokens at minimal reasoning effort,
+and truncation or provider errors raise a warning (degraded calls 14% → 2%).
+
+Metric definitions are in [bench/README.md](bench/README.md). The step-by-step
+procedure for running, comparing and debugging benchmarks is packaged as a project
+skill, [`.agents/skills/memory-benchmark/`](.agents/skills/memory-benchmark/SKILL.md),
+for coding agents working in this repository.
+
 ## Safety
 
 - Topic paths are validated; absolute paths, traversal, hidden paths, non-Markdown
@@ -216,6 +254,7 @@ Core logic (`src/core/`) has no Pi imports and is tested without a runtime.
   analysis of the reference implementation this design is derived from.
 - [docs/architecture.md](docs/architecture.md) — layers, storage, gaps.
 - [docs/milestones.md](docs/milestones.md) — M1, M2, M3 and exit criteria.
+- [bench/README.md](bench/README.md) — benchmark layers, corpus and metric definitions.
 - [docs/diagrams/](docs/diagrams/) — architecture and session-lifecycle diagrams:
   PNG previews, interactive HTML, and their JSON specifications.
 
